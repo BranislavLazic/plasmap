@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Plasmap model</title>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+</head>
+<body style="font-family:HelveticaNeue-Light, Helvetica, sans-serif; padding-top: 5%;">
+  <div style="margin-left: auto; margin-right: auto; width: 1000px; background-color: #eee; padding:50px; padding-top: 30px;">
+    <h1 style="font-family:HelveticaNeue-Light; font-weight: 300;">Try out the model by opening the JS console</h1>
+
+    <p style="font-family:HelveticaNeue-Light; font-weight: 300;">Then you can do: var p = Plasmap(); followed by something like p.city("Düsseldorf")</p>
+    <p style="font-family:HelveticaNeue-Light; font-weight: 300;">Alternatively var p = Plasmap().withGlobals() populates the global namespace with the city variable.</p>
+    <p style="font-family:HelveticaNeue-Light; font-weight: 300;">To compose multiple transformers (e.g. city(...)), you need to do p.compose(t1, t2, ...).</p>
+    <p style="font-family:HelveticaNeue-Light; font-weight: 300;">In order to finally send the query do: p.execute(transformer).</p>
+  </div>
+
+<script type="text/javascript" src="./target/scala-2.11/query-model-fastopt.js"></script>
+<script type="text/javascript">Plasmap()</script>
+
+</body>
+</html>

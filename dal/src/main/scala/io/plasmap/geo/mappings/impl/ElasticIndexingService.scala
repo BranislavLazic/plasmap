@@ -32,8 +32,8 @@ import com.sksamuel.elastic4s.streams.ReactiveElastic._
 object ElasticIndexingService {
 
   private val config = ConfigFactory.load()
-  private val hostConfig: String = config.getString("plasmap.indexer.io.plasmap.geo.mappings.impl.elasticsearch.host")
-  private val portConfig: Int = config.getInt("plasmap.indexer.io.plasmap.geo.mappings.impl.elasticsearch.port")
+  private val hostConfig: String = config.getString("plasmap.indexer.elasticsearch.host")
+  private val portConfig: Int = config.getInt("plasmap.indexer.elasticsearch.port")
 
   val configIndexer = Indexer(hostConfig, portConfig)
 

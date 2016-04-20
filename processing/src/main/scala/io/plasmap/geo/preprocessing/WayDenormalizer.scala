@@ -47,12 +47,12 @@ case class WayDenormalizer(ec:ExecutionContext,mat:Materializer) {
                           ):
   Flow[OsmWay, FlowError \/ OsmDenormalizedWay, Unit] = {
 
-    val flow = Flow[OsmWay].mapAsync(32)((way) => {
+    val flow = Flow[OsmWay].mapAsync(16)((way) => {
 
       val mappingFlow: Flow[OsmWay, (OsmId, Option[OsmNodeMapping]), Unit] =
         Flow[OsmWay]
           .mapConcat(_.nds)
-          .mapAsync(1)((nd) => {
+          .mapAsync(32)((nd) => {
 
             mapNd(nd)
               .recover { case e: Throwable =>

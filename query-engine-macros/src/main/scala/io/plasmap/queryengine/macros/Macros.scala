@@ -116,6 +116,7 @@ object Macros {
     c.typecheck(q"type T = $typeName")
     q"""
       new POI[$tA] {
+        override def tags: List[OsmTag] = List(OsmTag($tagKey,$tagVal))
         override def osmObj(poi: $tA):OsmDenormalizedObject = poi.osmObject
         override def bbsToQuery(rel: OsmDenormalizedRelation): List[(BoundingBox, Tag)] =
           bbsToQueryFromTag(rel, $tagKey, $tagVal)

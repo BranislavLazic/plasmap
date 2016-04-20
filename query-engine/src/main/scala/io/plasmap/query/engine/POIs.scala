@@ -11,39 +11,33 @@ import scala.language.experimental.macros
 import io.plasmap.queryengine.macros.Macros._
 
 /**
- * This contains type class instances for the POI type class.
- * Import all via import POIs._ or specify the ones you need
- * as in import POIs.poiTheatre
- *
- * Created by mark on 13.10.15.
- */
+  * This contains type class instances for the POI type class.
+  * Import all via import POIs._ or specify the ones you need
+  * as in import POIs.poiTheatre
+  *
+  * Created by mark on 13.10.15.
+  */
 object POIs {
 
   //Helper method (Don't move down.)
-  def bbsToQueryFromTag(rel: OsmDenormalizedRelation, key:String, value:String): List[(BoundingBox, Tag)] = {
-    val tag = Tag(OsmTag(key, value))
-    val (upperLeft, lowerRight) = GeoCalculator.rectangle(rel)
-    //TODO: In future use intelligent tag->bb mapper
-    val matrix = GeoHash.low.encapsulatingRectangleHashes(upperLeft.hash, lowerRight.hash)
-    val elements = for {
-      line ← matrix
-      hash ← line
-    } yield (BoundingBox(hash), tag)
-    elements.toList
+  def bbsToQueryFromTag(rel: OsmDenormalizedRelation, key: String, value: String): List[(BoundingBox, Tag)] = {
+    val tag = OsmTag(key, value)
+    Queries.createBBTag(rel, tag)
   }
 
-  def bbsToQueryFromTags(rel:OsmDenormalizedRelation, kvs:Map[String, String]):List[(BoundingBox, Tag)] = {
+  def bbsToQueryFromTags(rel: OsmDenormalizedRelation, kvs: Map[String, String]): List[(BoundingBox, Tag)] = {
     for {
-      (k,v) <- kvs.toList
-       li   <- bbsToQueryFromTag(rel, k, v)
-    } yield  li
+      (k, v) <- kvs.toList
+      li <- bbsToQueryFromTag(rel, k, v)
+    } yield li
   }
+
   //Keep this for the macro macro macro
   import io.plasmap.query.engine.POIQueries._
 
   //This is the function that invokes the macro.
-  def tci[A](tagKey:String, tagVal:String): POI[A] =
-    macro poiTypeClassInstanceMacro[A]
+  def tci[A](tagKey: String, tagVal: String): POI[A] =
+  macro poiTypeClassInstanceMacro[A]
 
   implicit val poiBars =
     tci[Bar]("amenity", "bar")
@@ -154,20 +148,26 @@ object POIs {
     tci[FireStation]("amenity", "fire_station")
 
   implicit val poiGym: POI[Gym] = new POI[Gym] {
-    def osmObj(g:Gym):OsmDenormalizedObject = g.osmObject
+    private val internalTags = List("amenity" -> "gym",
+    "leisure" -> "gym",
+    "leisure" -> "sports_centre",
+    "sport" -> "fitness")
+
+    def tags = internalTags.map((x) => OsmTag(x._1,x._2))
+
+    def osmObj(g: Gym): OsmDenormalizedObject = g.osmObject
+
     def bbsToQuery(rel: OsmDenormalizedRelation): List[(BoundingBox, Tag)] =
       bbsToQueryFromTags(rel,
-        Map(
-          "amenity" -> "gym",
-          "leisure" -> "gym",
-          "leisure" -> "sports_centre",
-          "sport" -> "fitness"
-        )
+        internalTags.toMap
       )
-    def queryFromShape(shape: SourceGraph[Gym]):POIQuery[Gym] =
+
+    def queryFromShape(shape: SourceGraph[Gym]): POIQuery[Gym] =
       POIQueryGym(shape)
+
     def fromOsmDenObj(osmObj: OsmDenormalizedObject): Gym =
       Gym(osmObj)
+
     val name = "gyms"
   }
 
@@ -234,14 +234,20 @@ object POIs {
   //when building more sophisticated/complicated type classes.
 
   implicit val poiRestaurant: POI[Restaurant] = new POI[Restaurant] {
-    def osmObj(r:Restaurant):OsmDenormalizedObject =
+    def tags = List(OsmTag("amenity", "restaurant"))
+
+    def osmObj(r: Restaurant): OsmDenormalizedObject =
       r.osmObject
+
     def bbsToQuery(rel: OsmDenormalizedRelation): List[(BoundingBox, Tag)] =
       bbsToQueryFromTag(rel, "amenity", "restaurant")
-    def queryFromShape(shape: SourceGraph[Restaurant]):POIQuery[Restaurant] =
+
+    def queryFromShape(shape: SourceGraph[Restaurant]): POIQuery[Restaurant] =
       POIQueryRestaurant(shape)
+
     def fromOsmDenObj(osmObj: OsmDenormalizedObject): Restaurant =
       Restaurant(osmObj)
+
     val name = "restaurants"
   }
 

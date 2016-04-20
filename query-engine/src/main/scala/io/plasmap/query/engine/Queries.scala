@@ -1,6 +1,5 @@
 package io.plasmap.query.engine
 
-import _root_.io.plasmap.query.engine.RegionQuery
 import _root_.io.plasmap.queryengine.macros.Macros.GeneratePOIQueries
 import io.plasmap.geo.data.OsmStorageService
 import _root_.io.plasmap.geo.mappings.{IndexSearchHit, IndexingService, MappingService}
@@ -142,6 +141,36 @@ object PointOfInterestQuery {
 
   import Queries._
 
+  def apply[A <: AreaElement, B: POI](coordinatesQuery: CoordinatesQuery, toData: (BoundingBox, Tag) ⇒ Future[List[OsmDenormalizedObject]] = retrieveNodeData)
+                                     (implicit mat: Materializer, ec: ExecutionContext): POIQuery[B] =
+  {
+    val Poi = implicitly[POI[B]]
+    Poi.queryFromShape(FlowGraph.partial() {
+
+      implicit builder: Builder[Unit] ⇒
+        val source: Source[Location, Unit] = Source.wrap(coordinatesQuery.shape)
+
+        // ohh what a beauty..
+        val subFlow: Flow[Location, B, Unit] = Flow[Location]
+          .map(_.point)
+          .mapConcat((point) => Poi.tags.map((t) => point -> t))
+          .map((tuple) => createBBTag(tuple._1,tuple._2))
+          .mapAsync(4)(toData.tupled)
+          .mapConcat(identity)
+          .map(Poi.fromOsmDenObj)
+
+        val flow: Flow[Location, (Location, List[B]), Unit] = Utilities.groupAndMap[Location, Location, B](100, identity, subFlow)(mat, ec)
+        val groupedSource: Source[(Location, List[B]), Unit] = source.via(flow)
+        val filteredSource: Source[B, Unit] =
+          Utilities
+            .flatten(groupedSource)(mat)
+            //.filter { case (area, poi) ⇒ GeoCalculator.within(Poi.osmObj(poi).geometry, area.osmObject.geometry) }
+            .map(_._2)
+
+        builder.add(filteredSource): SourceShape[B]
+    }.named(Poi.name))
+  }
+
   def apply[A <: AreaElement, B: POI](areaQuery: AreaQuery[A])
                                      (implicit mat: Materializer, ec: ExecutionContext): POIQuery[B] =
     fromArea(areaQuery)(implicitly[POI[B]], mat, ec)
@@ -167,7 +196,7 @@ object PointOfInterestQuery {
         val filteredSource: Source[B, Unit] =
           Utilities
             .flatten(groupedSource)(mat)
-            .filter { case (area, poi) ⇒ within(Poi.osmObj(poi), area.osmObject) }
+            .filter { case (area, poi) ⇒ GeoCalculator.within(Poi.osmObj(poi).geometry, area.osmObject.geometry) }
             .map(_._2)
 
         builder.add(filteredSource): SourceShape[B]
@@ -218,8 +247,7 @@ object Queries {
       .map((point) => createBBTag(point, tag))
       .mapAsync(4)(toData.tupled)
       .mapConcat(identity)
-      .filter(osmObject => within(
-        OsmDenormalizedNode(id = OsmId(1), tags = List.empty, geometry = LonLatPoint(lon, lat)), osmObject
+      .filter(osmObject => GeoCalculator.within(LonLatPoint(lon, lat), osmObject.geometry
       ))
       .collect { case rel: OsmDenormalizedRelation => rel }
     source.via(flow)
@@ -252,7 +280,7 @@ object Queries {
 
         val filteredSource = Utilities
           .flatten(groupedSource)(mat)
-          .filter((tuple) => within(tuple._2.osmObject, tuple._1.osmObject))
+          .filter((tuple) => GeoCalculator.within(tuple._2.osmObject.geometry, tuple._1.osmObject.geometry))
           .map(_._2)
           .deduplicate(1000, 0.001)
 
@@ -278,14 +306,18 @@ object Queries {
 
   private[engine] def createBBTag(rel: OsmDenormalizedRelation,tag: OsmTag): List[(BoundingBox, Tag)] = {
 
-    val (upperLeft, lowerRight) = GeoCalculator.rectangle(rel)
-    val matrix = GeoHash.veryLow.encapsulatingRectangleHashes(upperLeft.hash, lowerRight.hash)
+    val rectangles: List[(Point, Point)] = GeoCalculator.rectangle(rel.geometry)
+    val matrices: List[Array[Array[Long]]] = rectangles.map((rectangle) => {
+      val (upperLeft, lowerRight) = rectangle
+      GeoHash.veryLow.encapsulatingRectangleHashes(upperLeft.hash, lowerRight.hash)
+    })
 
     val elements = for {
+      matrix <- matrices
       line <- matrix
       hash <- line
     } yield (BoundingBox(hash), Tag(tag))
-    elements.toList.distinct
+    elements.distinct
   }
 
   private[engine] def retrieveNodeData(bb: BoundingBox, tag: Tag)(implicit ec: ExecutionContext): Future[List[OsmDenormalizedObject]] = retrieveData(OsmTypeNode)(bb, tag)(ec)
@@ -346,13 +378,4 @@ object Queries {
 
   def location(lon: Double, lat: Double): Source[Location, Unit] = Source.single(Location(Point(lon, lat)))
 
-  /**
-   * Checks if the first object is contained in the second
-   * @param inner the denormalised object containing the contained geometry
-   * @param outer the denormalised object containing the containing geometry
-   * @return true if outer contains inner and else otherwise
-   */
-  def within(inner: OsmDenormalizedObject, outer: OsmDenormalizedObject): Boolean = {
-    GeoCalculator.within(inner, outer)
-  }
 }

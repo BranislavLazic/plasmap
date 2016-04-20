@@ -25,9 +25,7 @@ object GeoCalculatorSpec extends Specification {
     )
   }
 
-  def mockRelation(geos:(Double, Double)*) = {
-    OsmDenormalizedRelation(id = OsmId(Random.nextInt), tags = Nil, geometry = fakeGeo(geos.toList))
-  }
+  def mockRelation(geos:(Double, Double)*): GeometryCollection = fakeGeo(geos.toList)
 
   val city = mockRelation(
     ( 0.0, 0.0),

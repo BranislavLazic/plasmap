@@ -97,6 +97,7 @@ final case class Tree(osmObject:OsmDenormalizedObject)         extends POIElemen
 
 
 @typeclass trait POI[A] {
+  def tags:List[OsmTag]
   def osmObj(p:A):OsmDenormalizedObject
   def name:String
   def fromOsmDenObj(oo:OsmDenormalizedObject):A

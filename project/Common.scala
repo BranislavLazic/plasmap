@@ -70,7 +70,7 @@ object Common {
     val TypesafeConfig = "com.typesafe" % "config" % "1.2.1"
     val ScalaLogging = "com.typesafe.scala-logging" %% "scala-logging" % "3.1.0"
 
-    val Geow = "io.plasmap" %% "geow" % "0.3.11-SNAPSHOT"
+    val Geow = "io.plasmap" %% "geow" % "0.3.17-SNAPSHOT"
 
     object GeoTools {
 

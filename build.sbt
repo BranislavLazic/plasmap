@@ -8,8 +8,6 @@ description := "Streaming OpenStreetMap API"
 
 organization in ThisBuild := "io.plasmap"
 
-version in ThisBuild := "0.3-SNAPSHOT"
-
 scalaVersion in ThisBuild := Common.ScalaVersion
 
 promptTheme := ScalapenosTheme

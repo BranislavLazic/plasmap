@@ -22,7 +22,7 @@ object Common {
 
   def ScalaVersion = "2.11.6"
 
-  def PlasmapVersion = "0.4.1-SNAPSHOT"
+  def PlasmapVersion = "0.4.1"
 
   object Dependencies {
 

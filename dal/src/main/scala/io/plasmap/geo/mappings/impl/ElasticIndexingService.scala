@@ -1,8 +1,9 @@
 package io.plasmap.geo.mappings.impl
 
+import akka.NotUsed
 import akka.actor.ActorSystem
-import akka.stream.scaladsl.{Flow, Source, Sink}
-import com.sksamuel.elastic4s.streams.{ResponseListener, ScrollPublisher, BulkIndexingSubscriber, RequestBuilder}
+import akka.stream.scaladsl.{Flow, Sink, Source}
+import com.sksamuel.elastic4s.streams.{BulkIndexingSubscriber, RequestBuilder, ResponseListener, ScrollPublisher}
 import com.sksamuel.elastic4s._
 import com.sksamuel.elastic4s.ElasticDsl._
 import com.typesafe.config.ConfigFactory
@@ -24,10 +25,10 @@ import scalaz.syntax.id._
 import com.sksamuel.elastic4s.streams.ReactiveElastic._
 
 /**
- * Takes osm objects and indexes them with elastic search.
- *
- * @author mark@plasmap.io
- */
+  * Takes osm objects and indexes them with elastic search.
+  *
+  * @author mark@plasmap.io
+  */
 
 object ElasticIndexingService {
 
@@ -51,7 +52,7 @@ object ElasticIndexingService {
 
 }
 
-class ElasticIndexingService(elasticClient: ElasticClient)(implicit val system:ActorSystem) extends IndexingService {
+class ElasticIndexingService(elasticClient: ElasticClient)(implicit val system: ActorSystem) extends IndexingService {
 
   import ElasticIndexingService._
 
@@ -98,23 +99,32 @@ class ElasticIndexingService(elasticClient: ElasticClient)(implicit val system:A
     }
   }
 
-  override def indexOsmObjectSink(batchSize: Int = 100, concurrentBatches: Int = 4, successFn:(OsmId) => Unit, errorHandler: (Throwable) => Unit): Sink[IndexMapping, Unit] = {
+  override def indexOsmObjectSink(
+                                   batchSize: Int = 100,
+                                   concurrentBatches: Int = 4,
+                                   successFn: (OsmId) => Unit,
+                                   errorHandler: (Throwable) => Unit): Sink[IndexMapping, NotUsed] = {
 
     val listener = new ResponseListener {
       override def onAck(resp: BulkItemResponse): Unit = {
 
-        if(!resp.isFailed) {
+        if (!resp.isFailed) {
           val id: Long = resp.getResponse[IndexResponse].getId.toLong
           successFn(OsmId(id))
-        }else{
+        } else {
           // TODO: What happens if there is a failure here when there shouldn't be one?
         }
       }
     }
-    Flow[IndexMapping].filter(_.tags.nonEmpty).to(Sink(elasticClient.subscriber[IndexMapping] (batchSize, concurrentBatches, listener = listener, errorFn = errorHandler)))
+    val sink: Sink[IndexMapping, NotUsed] =
+      Sink.fromSubscriber(elasticClient.subscriber[IndexMapping](batchSize, concurrentBatches, listener = listener, errorFn = errorHandler))
+
+    Flow[IndexMapping]
+      .filter(_.tags.nonEmpty)
+      .to(sink)
   }
 
-  override def searchOsmObjectSource(queryTerm: String, typ: OsmType): Source[IndexSearchHit, Unit] = {
+  override def searchOsmObjectSource(queryTerm: String, typ: OsmType): Source[IndexSearchHit, NotUsed] = {
     val index = typ match {
       case OsmTypeNode => NodesIndexName
       case OsmTypeWay => WaysIndexName
@@ -122,10 +132,9 @@ class ElasticIndexingService(elasticClient: ElasticClient)(implicit val system:A
     }
     val searchQuery = search in index query queryTerm scroll "50ms"
     val publisher = elasticClient.publisher(searchQuery)
-    Source(publisher)
+    Source.fromPublisher(publisher)
       .map((hit) => IndexSearchHit(OsmId(hit.id.toLong), hit.score))
   }
-
 
 
   /** Queries a given index for a term */
@@ -158,13 +167,13 @@ class ElasticIndexingService(elasticClient: ElasticClient)(implicit val system:A
   /** Type that allows us to use Future[List[A]] in a for comprehension */
   type FutureList[A] = ListT[Future, A]
 
-  def futureAsFutureList[A](fut: Future[A])(implicit ec: ExecutionContext): FutureList[A] = ListT[Future, A] (
-fut.map (List (_) )
-)
+  def futureAsFutureList[A](fut: Future[A])(implicit ec: ExecutionContext): FutureList[A] = ListT[Future, A](
+    fut.map(List(_))
+  )
 
-  def arrayAsFutureList[A](arr: Array[A])(implicit ec: ExecutionContext): FutureList[A] = ListT[Future, A] (
-Future {
-arr.toList
-}
-)
+  def arrayAsFutureList[A](arr: Array[A])(implicit ec: ExecutionContext): FutureList[A] = ListT[Future, A](
+    Future {
+      arr.toList
+    }
+  )
 }

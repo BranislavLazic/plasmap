@@ -2,13 +2,14 @@ package io.plasmap.geo.preprocessing
 
 import java.io.IOException
 
+import akka.NotUsed
 import akka.stream.ActorAttributes._
 import akka.stream.Supervision._
 import akka.stream.scaladsl.Flow
-import io.plasmap.geo.data.{OsmStorageService, OsmBB}
-import io.plasmap.model.{OsmId, OsmDenormalizedObject}
+import io.plasmap.geo.data.{OsmBB, OsmStorageService}
+import io.plasmap.model.{OsmDenormalizedObject, OsmId}
 
-import scala.concurrent.{Future, ExecutionContext}
+import scala.concurrent.{ExecutionContext, Future}
 import scalaz._
 
 /**
@@ -23,20 +24,20 @@ case class DataPersister(ec:ExecutionContext) {
   def createPersistDataFlow(
                              toBB: (OsmDenormalizedObject) => OsmBB = ProcessingUtilities.toBB,
                              storeOsmBB: (OsmBB) => Future[Option[OsmBB]] = defaultStoreOsmBB):
-  Flow[OsmDenormalizedObject, FlowError \/ OsmId, Unit] = {
-    val subFlow: Flow[OsmDenormalizedObject, (OsmId, Option[OsmBB]), Unit] = Flow[OsmDenormalizedObject]
+  Flow[OsmDenormalizedObject, FlowError \/ OsmId, NotUsed] = {
+    val subFlow: Flow[OsmDenormalizedObject, (OsmId, Option[OsmBB]), NotUsed] = Flow[OsmDenormalizedObject]
       .map(toBB)
       .log(s"BoundingBoxCreated")
       .mapAsync(16)((data) => {
         storeOsmBB(data)
-          .map(toTuple(data.osmId))(ec)
+          .map(tuplify(data.osmId))(ec)
       })
       .withAttributes(supervisionStrategy(resumingDecider))
       .log("PersistData")
 
     import scalaz.{Sink => _, Source => _, _}
 
-    val validatedFlow: Flow[OsmDenormalizedObject, FlowError \/ OsmId, Unit] = subFlow
+    val validatedFlow: Flow[OsmDenormalizedObject, FlowError \/ OsmId, NotUsed] = subFlow
       .log("PersistDataGrouped")
       .map {
         case (osmId, Some(data)) =>
@@ -48,9 +49,6 @@ case class DataPersister(ec:ExecutionContext) {
     validatedFlow
   }
 
-  def toTuple(osmId: OsmId): (Option[OsmBB]) => (OsmId, Option[OsmBB]) = {
-    x => {
-      osmId -> x
-    }
-  }
+  def tuplify(osmId: OsmId): (Option[OsmBB]) => (OsmId, Option[OsmBB]) = osmId -> _
+
 }

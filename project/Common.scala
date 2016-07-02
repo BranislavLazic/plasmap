@@ -11,7 +11,6 @@ object Common {
     Resolvers.Sonatype.Snapshots,
     Resolvers.Akka.Snapshots,
     Resolvers.Typesafe.Releases,
-    //Resolvers.Typesafe.Snapshots,
     Resolvers.OSGeo.Releases,
     Resolvers.Bintray.Maven,
     Resolvers.Bintray.Scalaz,
@@ -20,28 +19,29 @@ object Common {
 
   def Organization = "io.plasmap"
 
-  def ScalaVersion = "2.11.6"
+  def ScalaVersion = "2.11.8"
 
-  def PlasmapVersion = "0.4.1"
+  def PlasmapVersion = "0.5-SNAPSHOT"
 
   object Dependencies {
 
     object Akka {
       private val orga = "com.typesafe.akka"
-      private val version = "2.3.6"
+      private val version = "2.4.4"
 
       val Actor = orga %% "akka-actor" % version
+      val Http = orga %% "akka-http-core" % version
+      val Stream = orga %% "akka-stream" % version
+
+      val TestKit = orga %% "akka-testkit" % version
+      val StreamTestkit = orga %% "akka-stream-testkit" % version
+      val HttpTestkit = orga %% "akka-http-testkit" % version
 
       val Logback = "ch.qos.logback" % "logback-classic" % "1.1.3" % "runtime"
       val Slf4j = orga %% "akka-slf4j" % version
-
-      val TestKit = orga %% "akka-testkit" % version
-
-      //Maybe add "% "test" "
       val Config = "com.typesafe" % "config" % "1.2.1"
 
-      //private val experimentalVersion = "2.4-20150420-230104"
-      //val Typed = orga %% "akka-typed-experimental" % experimentalVersion
+      val All = Seq(Actor, Http, Stream, TestKit, StreamTestkit, HttpTestkit, Logback, Slf4j, Config)
     }
 
     object Play {

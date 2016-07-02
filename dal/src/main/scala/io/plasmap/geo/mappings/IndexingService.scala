@@ -1,5 +1,6 @@
 package io.plasmap.geo.mappings
 
+import akka.NotUsed
 import akka.actor.ActorSystem
 import akka.stream.scaladsl.{Sink, Source}
 import io.plasmap.geo.mappings.impl.ElasticIndexingService
@@ -19,11 +20,11 @@ case class IndexMapping(osm: OsmDenormalizedObject, tags:Map[String,String])
  */
 trait IndexingService {
 
-  def indexOsmObjectSink(batchSize: Int = 100, concurrentBatches: Int = 4, successFn:(OsmId) => Unit, errorHandler: (Throwable) => Unit): Sink[IndexMapping, Unit]
+  def indexOsmObjectSink(batchSize: Int = 100, concurrentBatches: Int = 4, successFn:(OsmId) => Unit, errorHandler: (Throwable) => Unit): Sink[IndexMapping, NotUsed]
 
   def indexOsmObject(mapping:IndexMapping)(implicit ec: ExecutionContext): Future[Option[IndexMapping]]
 
-  def searchOsmObjectSource(queryTerm: String, typ: OsmType): Source[IndexSearchHit, Unit]
+  def searchOsmObjectSource(queryTerm: String, typ: OsmType): Source[IndexSearchHit, NotUsed]
 
   def queryForOsmObject(queryTerm: String, typ: OsmType)(implicit ec: ExecutionContext): Future[List[IndexSearchHit]]
 

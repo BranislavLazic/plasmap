@@ -1,28 +1,27 @@
 package io.plasmap.geo.producing
 
-
+import akka.NotUsed
 import akka.actor.ActorSystem
-import akka.stream.scaladsl.{Sink, Source, _}
-import akka.stream.{ActorMaterializer, Outlet}
+import akka.stream.scaladsl.{Broadcast, Flow, GraphDSL, RunnableGraph, Sink, Source}
+import akka.stream.{ActorMaterializer, ClosedShape}
 import com.softwaremill.react.kafka.{ProducerProperties, ReactiveKafka}
 import com.typesafe.config.ConfigFactory
 import com.typesafe.scalalogging.Logger
-import io.plasmap.model.{OsmTypeNode, OsmType, OsmObject}
+import io.plasmap.model.OsmObject
 import io.plasmap.parser.OsmParser
-import io.plasmap.serializer.OsmSerializer._
 import io.plasmap.util.GeowUtils._
 import io.plasmap.util.streams.Utilities
 import io.plasmap.util.streams.Utilities.OsmObjectEncoder
-import kafka.serializer.Encoder
 import org.slf4j.LoggerFactory
 
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.Deadline
 import scala.io.{Codec, StdIn}
 
-import akka.stream.scaladsl.FlowGraph.Implicits._
 /**
  * Main class for producing osm elements to Kafka MQ.
- * @author Jan Schulte <jan@plasmap.io>
+  *
+  * @author Jan Schulte <jan@plasmap.io>
  */
 object OsmProducer {
 
@@ -90,24 +89,25 @@ object OsmProducer {
   def produce(fileName: String, offset: Int = 0, typ: Option[String] = None) = {
 
     val nodeSinkProperties: ProducerProperties[OsmObject] = Utilities.createSinkProperties(kafkaHost, "osm_nodes", "preprocessing", OsmObjectEncoder, OsmObjectEncoder.partitionizer)
-    val nodeSink: Sink[OsmObject, Unit] = Sink(kafka.publish(nodeSinkProperties))
+    val nodeSink: Sink[OsmObject, NotUsed] = Sink.fromSubscriber(kafka.publish(nodeSinkProperties))
 
     val waySinkProperties: ProducerProperties[OsmObject] = Utilities.createSinkProperties(kafkaHost, "osm_ways", "preprocessing", OsmObjectEncoder, OsmObjectEncoder.partitionizer)
-    val waySink: Sink[OsmObject, Unit] =  Sink(kafka.publish(waySinkProperties))
+    val waySink: Sink[OsmObject, NotUsed] =  Sink.fromSubscriber(kafka.publish(waySinkProperties))
 
     val relationSinkProperties: ProducerProperties[OsmObject] = Utilities.createSinkProperties(kafkaHost, "osm_relations", "preprocessing", OsmObjectEncoder, OsmObjectEncoder.partitionizer)
-    val relationSink: Sink[OsmObject, Unit] = Sink(kafka.publish(relationSinkProperties))
+    val relationSink: Sink[OsmObject, NotUsed] = Sink.fromSubscriber(kafka.publish(relationSinkProperties))
 
-    val source: Source[OsmObject, Unit] =
+    val source: Source[OsmObject, NotUsed] =
       parser(fileName)
         .filter(_.isDefined)
         .drop(offset)
         .map(countParsed)
         .map(_.get)
 
-    val flow: RunnableGraph[Unit] = FlowGraph.closed() { implicit builder =>
+    val flow: RunnableGraph[NotUsed] = RunnableGraph.fromGraph(GraphDSL.create() { implicit builder =>
+      import GraphDSL.Implicits._
 
-      val input: Outlet[OsmObject] = builder.add(source)
+      val input = builder.add(source)
       val bcast = builder.add(Broadcast[OsmObject](3))
 
       val nodesOutput = builder.add(nodeSink)
@@ -128,7 +128,8 @@ object OsmProducer {
         .filter( _ => typ.isEmpty || typ.contains("relation"))
         .map(countProduced) ~> relationsOutput
 
-    }.named("producer")
+      ClosedShape
+    })
 
     log.info(s"${Console.GREEN}Producing at kafka[${kafkaHost}], zk[$zkHost]${Console.RESET}")
     flow.run()
@@ -157,20 +158,17 @@ object OsmProducer {
   def waitForUserInput(): Unit = {
     println(s"${Console.RED}Press key to exit.${Console.RESET}")
     StdIn.readLine()
-
-    // Use this with akka 2.4
-    /*val f = actorSystem.terminate()
+    import scala.concurrent.ExecutionContext.Implicits.global
+    val f = actorSystem.terminate()
     f.onComplete {
       case _ ⇒ System.exit(0)
-    }*/
+    }
 
-    // Use this with akka 2.3
-    actorSystem.shutdown()
   }
 
   def parser(fileName: String) = {
     val parser = () => OsmParser(fileName)(Codec.UTF8)
-    Source(parser)
+    Source.fromIterator(parser)
   }
 
 

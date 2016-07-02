@@ -86,7 +86,7 @@ object Macros {
         case x:$name =>
             val poi = implicitly[POI[$typ]]
             val serialise: ($typ) => String = (s:$typ) => OsmDenormalizedSerializer.toGeoJsonString(poi.osmObj(s))
-            val source: Source[String, Unit] = Source.wrap(x.shape).via(serialiser(serialise))
+            val source: Source[String, NotUsed] = Source.fromGraph(x.shape).via(serialiser(serialise))
             source
         }
       """

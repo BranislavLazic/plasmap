@@ -11,9 +11,9 @@ import scala.util.Random
  *
  * @author Jan Schulte <jan@plasmap.io>
  */
-trait OsmTestData {
+object OsmTestData {
 
-  private[this] val relations: PartialFunction[OsmDenormalizedObject, OsmDenormalizedRelation] = {
+  private[this] def relations: PartialFunction[OsmDenormalizedObject, OsmDenormalizedRelation] = {
     case rel: OsmDenormalizedRelation => rel
   }
 
@@ -38,9 +38,9 @@ trait OsmTestData {
   val districtsDuisburg: List[OsmDenormalizedRelation] = (for {opt <- districtsDuisburgParser
   } yield opt).flatten.collect(relations).toList
 
-  val essen = cityEssen(0)
-  val muehlheim = cityMuehlheim(0)
-  val duisburg = cityDuisburg(0)
+  val essen = cityEssen.head
+  val muehlheim = cityMuehlheim.head
+  val duisburg = cityDuisburg.head
 
   val essenMuehlheimDistricts: List[OsmDenormalizedRelation] = Random.shuffle(districtsEssen.union(districtsMuehlheim))
   val duisburgMuehlheimDistricts: List[OsmDenormalizedRelation] = Random.shuffle(districtsDuisburg.union(districtsMuehlheim))

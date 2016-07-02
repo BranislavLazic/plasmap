@@ -1,138 +1,159 @@
 package io.plasmap.query.engine
 
-import _root_.io.plasmap.queryengine.macros.Macros.GeneratePOIQueries
-import io.plasmap.geo.data.OsmStorageService
 import _root_.io.plasmap.geo.mappings.{IndexSearchHit, IndexingService, MappingService}
-import io.plasmap.geohash.{GeoHash, PrecisionVeryLow_80KM}
 import _root_.io.plasmap.model._
 import _root_.io.plasmap.model.geometry.{LonLatPoint, Point}
-import io.plasmap.util.GeoCalculator
-import _root_.io.plasmap.util.streams.{StreamAdditions, Utilities}
+import _root_.io.plasmap.queryengine.macros.Macros.GeneratePOIQueries
+import _root_.io.plasmap.util.streams.Utilities
+import akka.NotUsed
 import akka.stream._
-import akka.stream.scaladsl.FlowGraph.Builder
-import akka.stream.scaladsl.FlowGraph.Implicits._
 import akka.stream.scaladsl._
-
+import io.plasmap.geo.data.OsmStorageService
+import io.plasmap.geohash.{GeoHash, PrecisionVeryLow_80KM}
+import io.plasmap.util.GeoCalculator
+import com.janschulte.akvokolekta.StreamAdditions._
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.{ExecutionContext, Future}
-
-import StreamAdditions._
 
 sealed trait Query[+S <: Shape, +M] {
   def shape: Graph[S, M]
 }
 
 object TypeAliases {
-  type SourceGraph[A] = Graph[SourceShape[A], Unit]
+  type SourceGraph[A] = Graph[SourceShape[A], NotUsed]
 }
 
-import TypeAliases._
+import io.plasmap.query.engine.TypeAliases._
 
 
-sealed trait POIQuery[A] extends Query[SourceShape[A], Unit] {
+sealed trait POIQuery[A] extends Query[SourceShape[A], NotUsed] {
   def shape: SourceGraph[A]
 }
 
 @GeneratePOIQueries[POIElement]("POIQuery") object POIQueries
 
-case class CoordinatesQuery(shape: SourceGraph[Location]) extends Query[SourceShape[Location], Unit]
+case class CoordinatesQuery(shape: SourceGraph[Location]) extends Query[SourceShape[Location], NotUsed]
+
 object CoordinatesQuery {
   def apply(lon: Double, lat: Double): CoordinatesQuery = CoordinatesQuery(Queries.location(lon, lat))
 }
 
 //FIXME: Create macro for area queries
-sealed trait AreaQuery[A <: AreaElement] extends Query[SourceShape[A], Unit]
+sealed trait AreaQuery[A <: AreaElement] extends Query[SourceShape[A], NotUsed]
 
 case class CountryQuery(shape: SourceGraph[Country]) extends AreaQuery[Country]
+
 object CountryQuery {
 
   import Queries._
 
-  def apply(lon: Double, lat: Double): CountryQuery = CountryQuery(relationByCoordinatesAndTypeShape(lon,lat,countryTag,Country))
-  def apply(name: String): CountryQuery = CountryQuery(relationByNameAndTypeShape(name, countryTag,Country))
+  def apply(lon: Double, lat: Double): CountryQuery = CountryQuery(relationByCoordinatesAndTypeShape(lon, lat, countryTag, Country))
+
+  def apply(name: String): CountryQuery = CountryQuery(relationByNameAndTypeShape(name, countryTag, Country))
 
 }
 
 case class StateQuery(shape: SourceGraph[State]) extends AreaQuery[State]
+
 object StateQuery {
 
   import Queries._
 
   def apply[T <: AreaElement](areaQuery: AreaQuery[T])(implicit mat: Materializer, ec: ExecutionContext): StateQuery =
-    StateQuery(relationByContainment(areaQuery,stateTag,State)(mat, ec))
-  def apply(lon: Double, lat: Double): StateQuery = StateQuery(relationByCoordinatesAndTypeShape(lon,lat,stateTag,State))
-  def apply(name: String): StateQuery = StateQuery(relationByNameAndTypeShape(name, stateTag,State))
+    StateQuery(relationByContainment(areaQuery, stateTag, State)(mat, ec))
+
+  def apply(lon: Double, lat: Double): StateQuery = StateQuery(relationByCoordinatesAndTypeShape(lon, lat, stateTag, State))
+
+  def apply(name: String): StateQuery = StateQuery(relationByNameAndTypeShape(name, stateTag, State))
 
 }
 
 case class RegionQuery(shape: SourceGraph[Region]) extends AreaQuery[Region]
+
 object RegionQuery {
 
   import Queries._
 
   def apply[T <: AreaElement](areaQuery: AreaQuery[T])(implicit mat: Materializer, ec: ExecutionContext): RegionQuery =
-    RegionQuery(relationByContainment(areaQuery,regionTag,Region)(mat, ec))
-  def apply(lon: Double, lat: Double): RegionQuery = RegionQuery(relationByCoordinatesAndTypeShape(lon,lat,regionTag,Region))
-  def apply(name: String): RegionQuery = RegionQuery(relationByNameAndTypeShape(name, regionTag,Region))
+    RegionQuery(relationByContainment(areaQuery, regionTag, Region)(mat, ec))
+
+  def apply(lon: Double, lat: Double): RegionQuery = RegionQuery(relationByCoordinatesAndTypeShape(lon, lat, regionTag, Region))
+
+  def apply(name: String): RegionQuery = RegionQuery(relationByNameAndTypeShape(name, regionTag, Region))
 
 }
 
 case class CityQuery(shape: SourceGraph[City]) extends AreaQuery[City]
+
 object CityQuery {
 
   import Queries._
 
   def apply[T <: AreaElement](areaQuery: AreaQuery[T])(implicit mat: Materializer, ec: ExecutionContext): CityQuery =
-    CityQuery(relationByContainment(areaQuery,cityTag,City)(mat, ec))
-  def apply(lon: Double, lat: Double): CityQuery = CityQuery(relationByCoordinatesAndTypeShape(lon,lat,cityTag,City))
-  def apply(name: String): CityQuery = CityQuery(relationByNameAndTypeShape(name, cityTag,City))
+    CityQuery(relationByContainment(areaQuery, cityTag, City)(mat, ec))
+
+  def apply(lon: Double, lat: Double): CityQuery = CityQuery(relationByCoordinatesAndTypeShape(lon, lat, cityTag, City))
+
+  def apply(name: String): CityQuery = CityQuery(relationByNameAndTypeShape(name, cityTag, City))
 
 }
 
 case class TownshipQuery(shape: SourceGraph[Township]) extends AreaQuery[Township]
+
 object TownshipQuery {
 
   import Queries._
 
   def apply[T <: AreaElement](areaQuery: AreaQuery[T])(implicit mat: Materializer, ec: ExecutionContext): TownshipQuery =
-    TownshipQuery(relationByContainment(areaQuery,townshipTag,Township)(mat, ec))
-  def apply(lon: Double, lat: Double): TownshipQuery = TownshipQuery(relationByCoordinatesAndTypeShape(lon,lat,townshipTag,Township))
-  def apply(name: String): TownshipQuery = TownshipQuery(relationByNameAndTypeShape(name, townshipTag,Township))
+    TownshipQuery(relationByContainment(areaQuery, townshipTag, Township)(mat, ec))
+
+  def apply(lon: Double, lat: Double): TownshipQuery = TownshipQuery(relationByCoordinatesAndTypeShape(lon, lat, townshipTag, Township))
+
+  def apply(name: String): TownshipQuery = TownshipQuery(relationByNameAndTypeShape(name, townshipTag, Township))
 
 }
 
 case class DistrictQuery(shape: SourceGraph[District]) extends AreaQuery[District]
+
 object DistrictQuery {
 
   import Queries._
 
   def apply[T <: AreaElement](areaQuery: AreaQuery[T])(implicit mat: Materializer, ec: ExecutionContext): DistrictQuery =
-    DistrictQuery(relationByContainment(areaQuery,districtTag,District)(mat, ec))
-  def apply(lon: Double, lat: Double): DistrictQuery = DistrictQuery(relationByCoordinatesAndTypeShape(lon,lat,districtTag,District))
-  def apply(name: String): DistrictQuery = DistrictQuery(relationByNameAndTypeShape(name, districtTag,District))
+    DistrictQuery(relationByContainment(areaQuery, districtTag, District)(mat, ec))
+
+  def apply(lon: Double, lat: Double): DistrictQuery = DistrictQuery(relationByCoordinatesAndTypeShape(lon, lat, districtTag, District))
+
+  def apply(name: String): DistrictQuery = DistrictQuery(relationByNameAndTypeShape(name, districtTag, District))
 }
 
 case class VillageQuery(shape: SourceGraph[Village]) extends AreaQuery[Village]
+
 object VillageQuery {
 
   import Queries._
 
   def apply[T <: AreaElement](areaQuery: AreaQuery[T])(implicit mat: Materializer, ec: ExecutionContext): VillageQuery =
-    VillageQuery(relationByContainment(areaQuery,villageTag,Village)(mat, ec))
-  def apply(lon: Double, lat: Double): VillageQuery = VillageQuery(relationByCoordinatesAndTypeShape(lon,lat,villageTag,Village))
-  def apply(name: String): VillageQuery = VillageQuery(relationByNameAndTypeShape(name, villageTag,Village))
+    VillageQuery(relationByContainment(areaQuery, villageTag, Village)(mat, ec))
+
+  def apply(lon: Double, lat: Double): VillageQuery = VillageQuery(relationByCoordinatesAndTypeShape(lon, lat, villageTag, Village))
+
+  def apply(name: String): VillageQuery = VillageQuery(relationByNameAndTypeShape(name, villageTag, Village))
 
 }
 
 case class CommunityQuery(shape: SourceGraph[Community]) extends AreaQuery[Community]
+
 object CommunityQuery {
 
   import Queries._
 
   def apply[T <: AreaElement](areaQuery: AreaQuery[T])(implicit mat: Materializer, ec: ExecutionContext): CommunityQuery =
-    CommunityQuery(relationByContainment(areaQuery,communityTag,Community)(mat, ec))
-  def apply(lon: Double, lat: Double): CommunityQuery = CommunityQuery(relationByCoordinatesAndTypeShape(lon,lat,communityTag,Community))
-  def apply(name: String): CommunityQuery = CommunityQuery(relationByNameAndTypeShape(name, communityTag,Community))
+    CommunityQuery(relationByContainment(areaQuery, communityTag, Community)(mat, ec))
+
+  def apply(lon: Double, lat: Double): CommunityQuery = CommunityQuery(relationByCoordinatesAndTypeShape(lon, lat, communityTag, Community))
+
+  def apply(name: String): CommunityQuery = CommunityQuery(relationByNameAndTypeShape(name, communityTag, Community))
 
 }
 
@@ -142,34 +163,22 @@ object PointOfInterestQuery {
   import Queries._
 
   def apply[A <: AreaElement, B: POI](coordinatesQuery: CoordinatesQuery, toData: (BoundingBox, Tag) ⇒ Future[List[OsmDenormalizedObject]] = retrieveNodeData)
-                                     (implicit mat: Materializer, ec: ExecutionContext): POIQuery[B] =
-  {
+                                     (implicit mat: Materializer, ec: ExecutionContext): POIQuery[B] = {
     val Poi = implicitly[POI[B]]
-    Poi.queryFromShape(FlowGraph.partial() {
 
-      implicit builder: Builder[Unit] ⇒
-        val source: Source[Location, Unit] = Source.wrap(coordinatesQuery.shape)
+    val subFlow = Flow[Location]
+      .map(_.point)
+      .mapConcat((point) => Poi.tags.map((t) => point -> t))
+      .map((tuple) => createBBTag(tuple._1, tuple._2))
+      .mapAsync(4)(toData.tupled)
+      .mapConcat(identity)
+      .map(Poi.fromOsmDenObj)
 
-        // ohh what a beauty..
-        val subFlow: Flow[Location, B, Unit] = Flow[Location]
-          .map(_.point)
-          .mapConcat((point) => Poi.tags.map((t) => point -> t))
-          .map((tuple) => createBBTag(tuple._1,tuple._2))
-          .mapAsync(4)(toData.tupled)
-          .mapConcat(identity)
-          .map(Poi.fromOsmDenObj)
-
-        val flow: Flow[Location, (Location, List[B]), Unit] = Utilities.groupAndMap[Location, Location, B](100, identity, subFlow)(mat, ec)
-        val groupedSource: Source[(Location, List[B]), Unit] = source.via(flow)
-        val filteredSource: Source[B, Unit] =
-          Utilities
-            .flatten(groupedSource)(mat)
-            //.filter { case (area, poi) ⇒ GeoCalculator.within(Poi.osmObj(poi).geometry, area.osmObject.geometry) }
-            .map(_._2)
-
-        builder.add(filteredSource): SourceShape[B]
-    }.named(Poi.name))
+    val flow: Flow[Location, B, NotUsed] = Utilities.groupAndMapSubFlow[Location, Location, B](identity, subFlow, 100) //(mat, ec)
+    val source = Source.fromGraph(coordinatesQuery.shape).via(flow)
+    Poi.queryFromShape(source)
   }
+
 
   def apply[A <: AreaElement, B: POI](areaQuery: AreaQuery[A])
                                      (implicit mat: Materializer, ec: ExecutionContext): POIQuery[B] =
@@ -178,37 +187,32 @@ object PointOfInterestQuery {
   def fromArea[A <: AreaElement, B: POI](areaQuery: AreaQuery[A], toData: (BoundingBox, Tag) ⇒ Future[List[OsmDenormalizedObject]] = retrieveNodeData)
                                         (implicit mat: Materializer, ec: ExecutionContext): POIQuery[B] = {
     val Poi = implicitly[POI[B]]
-    Poi.queryFromShape(FlowGraph.partial() {
 
-      implicit builder: Builder[Unit] ⇒
-        val source: Source[A, Unit] = Source.wrap(areaQuery.shape)
+    val subFlow: Flow[A, B, NotUsed] = Flow[A]
+      .map(_.osmObject)
+      .mapConcat(Poi.bbsToQuery)
+      .mapAsync(4)(toData.tupled)
+      .mapConcat(identity)
+      .map(Poi.fromOsmDenObj)
 
-        // ohh what a beauty..
-        val subFlow: Flow[A, B, Unit] = Flow[A]
-          .map(_.osmObject)
-          .mapConcat(Poi.bbsToQuery)
-          .mapAsync(4)(toData.tupled)
-          .mapConcat(identity)
-          .map(Poi.fromOsmDenObj)
+    val flow: Flow[A, (A, B), NotUsed] = Utilities.groupAndMapSubflowWithKey[A, A, B](identity, subFlow, 100)
 
-        val flow: Flow[A, (A, List[B]), Unit] = Utilities.groupAndMap[A, A, B](100, identity, subFlow)(mat, ec)
-        val groupedSource: Source[(A, List[B]), Unit] = source.via(flow)
-        val filteredSource: Source[B, Unit] =
-          Utilities
-            .flatten(groupedSource)(mat)
-            .filter { case (area, poi) ⇒ GeoCalculator.within(Poi.osmObj(poi).geometry, area.osmObject.geometry) }
-            .map(_._2)
+    val source: Source[B, NotUsed] = Source.fromGraph(areaQuery.shape).via(flow)
+      .filter {
+        case (area, poi) ⇒ GeoCalculator.within(Poi.osmObj(poi).geometry, area.osmObject.geometry)
+      }
+      .map(_._2)
 
-        builder.add(filteredSource): SourceShape[B]
-    }.named(Poi.name))
+    Poi.queryFromShape(source)
   }
+
 }
 
 /**
- * Definition of high-level queries.
- *
- * @author Jan Schulte <jan@plasmap.io>
- */
+  * Definition of high-level queries.
+  *
+  * @author Jan Schulte <jan@plasmap.io>
+  */
 object Queries {
 
   lazy val indexingService = IndexingService()
@@ -217,75 +221,60 @@ object Queries {
                                             filterTag: OsmTag,
                                             toIndex: (Name) => Future[List[Id]] = retrieveRelationId,
                                             toBoundingBox: (Id) => Future[List[BoundingBox]] = retrieveRelationBB,
-                                            toData: (BoundingBox, Id) => Future[List[OsmDenormalizedObject]]  = retrieveRelationById
-                                             ): Source[OsmDenormalizedRelation, Unit] = {
-    val indexSource: Source[IndexSearchHit, Unit] = indexingService.searchOsmObjectSource(name, OsmTypeRelation)
+                                            toData: (BoundingBox, Id) => Future[List[OsmDenormalizedObject]] = retrieveRelationById
+                                           ): Source[OsmDenormalizedRelation, NotUsed] = {
+    val indexSource: Source[IndexSearchHit, NotUsed] = indexingService.searchOsmObjectSource(name, OsmTypeRelation)
     val indexedSource = indexSource.map((ish) => Id(ish.id))
 
-    val boundingBoxIdSource: Source[(BoundingBox, Id), Unit] = Utilities
+    val boundingBoxIdSource: Source[(BoundingBox, Id), NotUsed] = Utilities
       .mapConcatAndGroupAsync(indexedSource, toBoundingBox)
       .map(_.swap)
 
-    val relationSource: Source[OsmDenormalizedRelation, Unit] = Utilities
-              .mapConcatAndGroupAsync[(BoundingBox, Id), OsmDenormalizedObject, Unit](boundingBoxIdSource, toData.tupled)
+    val relationSource: Source[OsmDenormalizedRelation, NotUsed] = Utilities
+      .mapConcatAndGroupAsync[(BoundingBox, Id), OsmDenormalizedObject, NotUsed](boundingBoxIdSource, toData.tupled)
       .collect { case ((bb, id), relation: OsmDenormalizedRelation) => relation }
       .filter(_.tags.contains(filterTag))
       .deduplicate(1000, 0.001)
     relationSource
   }
 
-  private[engine] def relationByNameAndTypeShape[T <: AreaElement](name:String,tag:OsmTag,mapF:(OsmDenormalizedRelation) => T): Graph[SourceShape[T], Unit] =
-    FlowGraph.partial() { implicit builder: Builder[Unit] =>
-        val source: Source[T, Unit] = relationByNameAndType(name, tag).map(mapF)
-      builder.add(source) : SourceShape[T]
-    }.named("fromName")
-  
-  private[engine] def relationByCoordinatesAndType(lon: Double, lat: Double, tag: OsmTag, toData: (BoundingBox, Tag) => Future[List[OsmDenormalizedObject]] = retrieveRelationData): Source[OsmDenormalizedRelation, Unit] = {
+  private[engine] def relationByNameAndTypeShape[T <: AreaElement](name: String, tag: OsmTag, mapF: (OsmDenormalizedRelation) => T): Source[T, NotUsed] =
+    relationByNameAndType(name, tag).map(mapF)
+
+  private[engine] def relationByCoordinatesAndType(lon: Double, lat: Double, tag: OsmTag, toData: (BoundingBox, Tag) => Future[List[OsmDenormalizedObject]] = retrieveRelationData)
+  : Source[OsmDenormalizedRelation, NotUsed] = {
     val source = location(lon, lat)
     val flow = Flow[Location]
       .map(_.point)
       .map((point) => createBBTag(point, tag))
       .mapAsync(4)(toData.tupled)
       .mapConcat(identity)
-      .filter(osmObject => GeoCalculator.within(LonLatPoint(lon, lat), osmObject.geometry
-      ))
+      .filter(osmObject => GeoCalculator.within(LonLatPoint(lon, lat), osmObject.geometry))
       .collect { case rel: OsmDenormalizedRelation => rel }
     source.via(flow)
   }
-  
-  private[engine] def relationByCoordinatesAndTypeShape[T <: AreaElement](lon:Double,lat:Double,tag:OsmTag,mapF:(OsmDenormalizedRelation)=>T): Graph[SourceShape[T], Unit] =
-    FlowGraph.partial() { implicit builder: Builder[Unit] =>
-        val source: Source[T, Unit] = relationByCoordinatesAndType(lon, lat, tag).map(mapF)
-      builder.add(source) : SourceShape[T]
-    }.named("fromLonLat")
 
-  private[engine] def relationByContainment[I <: AreaElement, O <: AreaElement](areaQuery: AreaQuery[I], tag:OsmTag,mapF:(OsmDenormalizedRelation)=> O,
-                                              toData: (BoundingBox, Tag) => Future[List[OsmDenormalizedObject]] = retrieveRelationData)(mat: Materializer, ec: ExecutionContext): Graph[SourceShape[O], Unit] = {
-    FlowGraph.partial() {
-      implicit builder: Builder[Unit] =>
+  private[engine] def relationByCoordinatesAndTypeShape[T <: AreaElement](lon: Double, lat: Double, tag: OsmTag, mapF: (OsmDenormalizedRelation) => T): Source[T, NotUsed] =
+    relationByCoordinatesAndType(lon, lat, tag).map(mapF)
 
+  private[engine] def relationByContainment[I <: AreaElement, O <: AreaElement](areaQuery: AreaQuery[I], tag: OsmTag, mapF: (OsmDenormalizedRelation) => O,
+                                                                                toData: (BoundingBox, Tag) => Future[List[OsmDenormalizedObject]] = retrieveRelationData)(mat: Materializer, ec: ExecutionContext):
+  Source[O, NotUsed] = {
 
-        val relationFlow: Flow[I, OsmDenormalizedRelation, Unit] = Flow[I]
-          .map(_.osmObject)
+    val subFlow: Flow[I, O, NotUsed] = Flow[I]
+      .map(_.osmObject)
+      .mapConcat(createBBTag(_, tag))
+      .deduplicate(10000, 0.001)
+      .mapAsync(4)(toData.tupled)
+      .mapConcat(identity)
+      .collect { case relation: OsmDenormalizedRelation => mapF(relation) }
 
-        val subFlow: Flow[I, O, Unit] = relationFlow
-          .mapConcat(createBBTag(_, tag))
-          .deduplicate(10000, 0.001)
-          .mapAsync(4)(toData.tupled)
-          .mapConcat(identity)
-          .collect { case relation: OsmDenormalizedRelation => mapF(relation) }
-
-        val flow: Flow[I, (I, List[O]), Unit] = Utilities.groupAndMap[I, I, O](100, identity, subFlow)(mat, ec)
-        val groupedSource: Source[(I, List[O]), Unit] = Source.wrap(areaQuery.shape).via(flow)
-
-        val filteredSource = Utilities
-          .flatten(groupedSource)(mat)
-          .filter((tuple) => GeoCalculator.within(tuple._2.osmObject.geometry, tuple._1.osmObject.geometry))
-          .map(_._2)
-          .deduplicate(1000, 0.001)
-
-        builder.add(filteredSource): SourceShape[O]
-    }.named("fromArea")
+    val flow: Flow[I, (I, O), NotUsed] = Utilities.groupAndMapSubflowWithKey[I, I, O](identity, subFlow, 100)
+    Source.fromGraph(areaQuery.shape)
+      .via(flow)
+      .filter((tuple) => GeoCalculator.within(tuple._2.osmObject.geometry, tuple._1.osmObject.geometry))
+      .map(_._2)
+      .deduplicate(1000, 0.001)
   }
 
   private[engine] val countryTag = OsmTag("admin_level", "2")
@@ -304,7 +293,7 @@ object Queries {
     bb -> tag
   }
 
-  private[engine] def createBBTag(rel: OsmDenormalizedRelation,tag: OsmTag): List[(BoundingBox, Tag)] = {
+  private[engine] def createBBTag(rel: OsmDenormalizedRelation, tag: OsmTag): List[(BoundingBox, Tag)] = {
 
     val rectangles: List[(Point, Point)] = GeoCalculator.rectangle(rel.geometry)
     val matrices: List[Array[Array[Long]]] = rectangles.map((rectangle) => {
@@ -367,15 +356,12 @@ object Queries {
   private[engine] def retrieveBB(typ: OsmType)(id: Id)(implicit ec: ExecutionContext): Future[List[BoundingBox]] = {
     val mappingService = MappingService()
     mappingService.findMapping(id.id, typ)
-      .map(
-        x => {
-          x.map(
+      .map( _.map(
             (mapping) => BoundingBox(mapping.hash)).toList
-        }
       )
   }
 
 
-  def location(lon: Double, lat: Double): Source[Location, Unit] = Source.single(Location(Point(lon, lat)))
+  def location(lon: Double, lat: Double): Source[Location, NotUsed] = Source.single(Location(Point(lon, lat)))
 
 }

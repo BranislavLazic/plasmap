@@ -1,22 +1,81 @@
 package io.plasmap.util.streams
 
-import akka.actor.ActorSystem
-import akka.stream.scaladsl.{Flow, Sink, Source}
-import akka.stream.{Materializer, OverflowStrategy}
-import com.softwaremill.react.kafka.{ProducerProperties, ReactiveKafka}
+import akka.NotUsed
+import akka.stream._
+import akka.stream.scaladsl.{Broadcast, Flow, GraphDSL, Source, Zip}
+import akka.stream.stage._
+import com.softwaremill.react.kafka.ProducerProperties
 import io.plasmap.model.{OsmDenormalizedObject, OsmObject}
 import kafka.serializer.Encoder
 
 import scala.concurrent.{ExecutionContext, Future}
 
+final class InfiniteRepeat[In](extrapolate: In ⇒ Iterator[In]) extends GraphStage[FlowShape[In, In]] {
+
+  private val in = Inlet[In]("expand.in")
+  private val out = Outlet[In]("expand.out")
+
+  override def initialAttributes = Attributes.none
+  override val shape = FlowShape(in, out)
+
+  override def createLogic(attr: Attributes) = new GraphStageLogic(shape) {
+    private var iterator: Iterator[In] = Iterator.empty
+    private var expanded = false
+
+    override def preStart(): Unit = pull(in)
+
+    setHandler(in, new InHandler {
+      override def onPush(): Unit = {
+        iterator = extrapolate(grab(in))
+        if (iterator.hasNext) {
+          if (isAvailable(out)) {
+            expanded = true
+            pull(in)
+            push(out, iterator.next())
+          } else expanded = false
+        } else pull(in)
+      }
+      override def onUpstreamFinish(): Unit = {
+
+      }
+    })
+
+    setHandler(out, new OutHandler {
+      override def onPull(): Unit = {
+        if (iterator.hasNext) {
+          if (!expanded) {
+            expanded = true
+            if (isClosed(in)) {
+              push(out, iterator.next())
+              completeStage()
+            } else {
+              // expand needs to pull first to be “fair” when upstream is not actually slow
+              pull(in)
+              push(out, iterator.next())
+            }
+          } else push(out, iterator.next())
+        }
+      }
+    })
+  }
+}
+
+object InfiniteRepeat {
+
+  def apply[In]:InfiniteRepeat[In] = new InfiniteRepeat(Iterator.continually[In](_))
+
+}
+
 /**
- * @author Jan Schulte <jan@plasmap.io>
- */
+  * @author Jan Schulte <jan@plasmap.io>
+  */
 object Utilities {
 
 
-  object OsmObjectEncoder extends Encoder[OsmObject]{
+  object OsmObjectEncoder extends Encoder[OsmObject] {
+
     import io.plasmap.serializer.OsmSerializer._
+
     override def toBytes(t: OsmObject): Array[Byte] = {
       toBinary(t)
     }
@@ -25,20 +84,25 @@ object Utilities {
       Some(osmObject.id.value.toString.getBytes("UTF8"))
   }
 
-  object OsmDenormalisedObjectEncoder extends Encoder[OsmDenormalizedObject]{
+  object OsmDenormalisedObjectEncoder extends Encoder[OsmDenormalizedObject] {
+
     import io.plasmap.serializer.OsmDenormalizedSerializer._
+
     override def toBytes(t: OsmDenormalizedObject): Array[Byte] = {
       toBinary(t)
     }
+
     def partitionizer(osmDenormalizedObject: OsmDenormalizedObject) =
       Some(osmDenormalizedObject.id.value.toString.getBytes("UTF8"))
   }
 
 
-  def createSinkProperties[T](host: String, topic: String, clientId:String, encoder:Encoder[T],partitionizer:(T)=> Option[Array[Byte]]): ProducerProperties[T] =
+  def createSinkProperties[T](host: String, topic: String, clientId: String, encoder: Encoder[T], partitionizer: (T) => Option[Array[Byte]]): ProducerProperties[T] =
     ProducerProperties(host, topic, clientId, encoder, partitionizer)
       .asynchronous()
       .noCompression()
+
+
 
   def mapConcatAndGroup[I, O, M](source: Source[I, M], mapConcatF: (I) => List[O]): Source[(I, O), M] = {
     val mappedSource: Source[(I, O), M] = source.mapConcat(
@@ -53,56 +117,94 @@ object Utilities {
         mapConcatF(input)
           .map((list) => list.map((output) => input -> output)))
 
-    mappedSource.mapConcat(identity)
+    mappedSource.mapConcat(identity _)
   }
 
   def reduceByKey[In, K, Out](
                                maximumGroupSize: Int,
                                groupKey: (In) => K,
-                               foldZero: (K) => Out,
-                               fold: (Out, In) => Out
-                               )(implicit mat: Materializer): Flow[In, (K, Out), Unit] = {
-
-    val groupStreams = Flow[In].groupBy(groupKey)
-    val reducedValues = groupStreams.map {
-      case (key, groupStream) =>
-        groupStream.runFold((key, foldZero(key))) {
-          case ((k, aggregated), elem) => (k, fold(aggregated, elem))
-        }
-    }
-
-    val buffer: Flow[In, Future[(K, Out)], Unit] = reducedValues.buffer(maximumGroupSize, OverflowStrategy.fail)
-    buffer.mapAsync(4)(identity)
+                               map: (In) => Out)(reduce: (Out, Out) => Out): Flow[In, (K, Out), NotUsed] = {
+    Flow[In]
+      .groupBy[K](maximumGroupSize, groupKey)
+      .map(e => groupKey(e) -> map(e))
+      .reduce((l, r) => l._1 -> reduce(l._2, r._2))
+      .mergeSubstreams
   }
 
-  def groupAndMap[In, K, Out](
+  def groupAndMapSubFlow[In, K, Out](groupKey: (In) => K,
+                                     subFlow: Flow[In, Out, NotUsed],
+                                     maximumGroupSize: Int
+                               ): Flow[In, Out, NotUsed] = {
+
+    Flow[In]
+      .groupBy[K](maximumGroupSize, groupKey)
+      //.map(e => groupKey(e) -> e)
+      .via(subFlow)
+      //.reduce((l, r) => l._1 -> reduce(l._2, r._2))
+      .mergeSubstreams
+  }
+
+
+  def subflowWithGroupKey[In, K, Out](subFlow: Flow[In, Out, NotUsed], groupKey: (In) => K): Flow[In, (K, Out), NotUsed] = Flow.fromGraph {
+    GraphDSL.create() { implicit b =>
+      import GraphDSL.Implicits._
+
+      val broadcast = b.add(Broadcast[In](outputPorts = 2, eagerCancel = true))
+      val repeater = b.add(InfiniteRepeat[K])
+      val zip = b.add(Zip[K, Out])
+
+      broadcast ~>                            subFlow ~> zip.in1
+      broadcast ~> Flow[In].map(groupKey) ~> repeater ~> zip.in0
+
+      FlowShape(broadcast.in, zip.out)
+    }
+  }
+
+  def groupAndMapSubflowWithKey[In, K, Out](
+                                groupKey: (In) => K,
+                                subFlow: Flow[In, Out, NotUsed],
+                                maximumGroupSize: Int): Flow[In, (K, Out), NotUsed] = {
+
+    val subFlowWithGroupKey: Flow[In, (K, Out), NotUsed] = Utilities.subflowWithGroupKey(subFlow, groupKey)
+
+    groupAndMapSubFlow[In,K,(K,Out)](groupKey,subFlowWithGroupKey,100)
+  }
+
+  /*def groupAndMap[In, K, Out](
                                maximumGroupSize: Int,
                                groupKey: (In) => K,
-                               flow: Flow[In, Out, Unit],
+                               flow: Flow[In, Out, NotUsed],
                                strategy: OverflowStrategy = OverflowStrategy.fail
-                               )(implicit mat: Materializer, ec: ExecutionContext): Flow[In, (K, List[Out]), Unit] = {
+                             )(implicit mat: Materializer, ec: ExecutionContext): Flow[In, (K, List[Out]), NotUsed] = {
 
-    val groupStreams: Flow[In, (K, Source[In, Unit]), Unit] = Flow[In].groupBy(groupKey)
-    val reducedValues: Flow[In, Future[(K, List[Out])], Unit] = groupStreams.map {
-      case (key: K, groupStream: Source[In, Unit]) =>
-        val mappedSource: Source[Out, Unit] = groupStream.via(flow)
-        mappedSource.runFold((key, List.empty[Out])) {
-          case ((key: K, aggregated: List[Out]), elem: Out) =>
-            (key, elem :: aggregated)
-        }
-    }
+    def foldF(accumulator: List[Out], elem: Out): List[Out] = elem :: accumulator
 
-    val buffer: Flow[In, Future[(K, List[Out])], Unit] = reducedValues.buffer(maximumGroupSize, strategy)
-    buffer.mapAsync(4)(identity)
-  }
+    val zero = List.empty[Out]
+
+    val foldSubstream: (K, Source[In, Unit]) => Future[(K, List[Out])] = (key, subStream) =>
+      subStream
+        .via(flow)
+        .runFold(zero)(foldF)
+        .map(key -> _)
+
+    val groupFlow: SubFlow[In, NotUsed, Flow[In, _, NotUsed], Sink[In, NotUsed]] = Flow[In]
+      .groupBy(1000, groupKey)
+
+
+    val via: SubFlow[_, NotUsed, Flow[In, Out, NotUsed], Sink[In, NotUsed]][Out] = groupFlow.via(flow)
+    via.merg
+
+      .map(foldSubstream.tupled)
+      .buffer(maximumGroupSize, strategy)
+      .mapAsync(4)(identity _)
+  }*/
 
   // Flatten a materialized stream of streams
-  def flatten[K, Out](source: Source[(K, List[Out]), Unit])(implicit mat: Materializer): Source[(K, Out), Unit] = {
+  /*def flatten[K, Out](source: Source[(K, List[Out]), Unit])(implicit mat: Materializer): Source[(K, Out), Unit] = {
     source.mapConcat((input) => {
       val (k, list) = input
       list.map(k -> _)
     })
-  }
-
+  }*/
 
 }

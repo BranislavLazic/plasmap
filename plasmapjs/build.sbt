@@ -12,7 +12,7 @@ resolvers += "bintray/non" at "http://dl.bintray.com/non/maven"
 
 resolvers += "Sonatype snapshots" at "https://oss.sonatype.org/content/repositories/snapshots/"
 
-addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0-M5" cross CrossVersion.full)
+addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
 
 libraryDependencies ++= Seq(
     "com.github.japgolly.fork.scalaz" %%% "scalaz-core" % "7.1.3",

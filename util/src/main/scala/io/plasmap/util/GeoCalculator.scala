@@ -1,15 +1,10 @@
 package io.plasmap.util
 
-import com.vividsolutions.jts.geom
-import com.vividsolutions.jts.geom.{Coordinate => JTSCoordinate, CoordinateSequence => JTSCoordinateSequence, LinearRing => JTSLinearRing, Point => JTSPoint, Polygon => JTSPolygon, GeometryFactory, Envelope}
-import org.geotools.geometry.jts.JTSFactoryFinder
+import com.vividsolutions.jts.geom.{Envelope, Coordinate => JTSCoordinate, CoordinateSequence => JTSCoordinateSequence, LinearRing => JTSLinearRing, Point => JTSPoint, Polygon => JTSPolygon}
 import io.plasmap.geohash.GeoHash
 import io.plasmap.model.geometry._
-import io.plasmap.model.{OsmDenormalizedNode, OsmDenormalizedObject, OsmDenormalizedRelation, OsmTypeWay}
-import sun.security.util.PolicyUtil
-
-import scala.collection.mutable.ArrayBuffer
-import GeowGeometryToJTSGeometry._
+import io.plasmap.util.GeowGeometryToJTSGeometry._
+import org.geotools.geometry.jts.JTSFactoryFinder
 
 
 /**

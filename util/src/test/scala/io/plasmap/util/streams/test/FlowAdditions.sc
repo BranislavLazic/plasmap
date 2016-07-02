@@ -16,18 +16,7 @@ for (i <- 0 to 10000) {
 }
 println(sketch.getEstimate.toInt)*/
 
-object HashMapper {
-  def main (args: Array[String]){
-   // Analysen durchfuerhen
 
-    write("config.txt")
-  }
-}
+val x : Either[String,Int] = Right(10)
 
-object Hashy {
-
-  readHashmap
-  def getBoundingBox(tag:OsmTag, position: (Double, Double)): Precision = ???
-}
-
-Hashy.getX
+x.left.map()

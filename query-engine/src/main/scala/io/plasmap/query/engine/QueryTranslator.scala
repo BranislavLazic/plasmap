@@ -1,7 +1,6 @@
 package io.plasmap.query.engine
 
 import _root_.io.plasmap.querymodel._
-import akka.stream.scaladsl.FlowGraph
 import akka.stream._
 import com.typesafe.scalalogging.Logger
 import org.slf4j.LoggerFactory

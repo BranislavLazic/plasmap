@@ -2,11 +2,12 @@ package io.plasmap.geo.preprocessing
 
 import java.io.IOException
 
+import akka.NotUsed
 import akka.stream.ActorAttributes._
 import akka.stream.Supervision._
 import akka.stream.scaladsl.Flow
-import io.plasmap.geo.data.{OsmStorageService, OsmBBTag}
-import io.plasmap.model.{OsmId, OsmDenormalizedObject}
+import io.plasmap.geo.data.{OsmBBTag, OsmStorageService}
+import io.plasmap.model.{OsmDenormalizedObject, OsmId}
 
 import scala.concurrent.{ExecutionContext, Future}
 import scalaz._
@@ -26,9 +27,9 @@ case class DataByTagPersister(ec:ExecutionContext) {
   def createPersistDataByTagFlow(
                                   toBBTag: (OsmDenormalizedObject) => List[OsmBBTag] = ProcessingUtilities.toBBTag,
                                   storeOsmBBTag: (OsmBBTag) => Future[Option[OsmBBTag]] = defaultStoreOsmBBTag
-                                  ): Flow[OsmDenormalizedObject, FlowError \/ OsmId, Unit] = {
+                                  ): Flow[OsmDenormalizedObject, FlowError \/ OsmId, NotUsed] = {
 
-    val subFlow: Flow[OsmDenormalizedObject, (OsmId, Option[OsmBBTag]), Unit] = Flow[OsmDenormalizedObject]
+    val subFlow: Flow[OsmDenormalizedObject, (OsmId, Option[OsmBBTag]), NotUsed] = Flow[OsmDenormalizedObject]
       .mapConcat(toBBTag)
       .log(s"BoundingBoxTagsCreated")
       .mapAsync(16)((data) => storeOsmBBTag(data).map(x => {
@@ -39,7 +40,7 @@ case class DataByTagPersister(ec:ExecutionContext) {
 
     import scalaz.{Sink => _, Source => _, _}
 
-    val validatedFlow: Flow[OsmDenormalizedObject, FlowError \/ OsmId, Unit] = subFlow
+    val validatedFlow: Flow[OsmDenormalizedObject, FlowError \/ OsmId, NotUsed] = subFlow
       .log("PersistDataTagGrouped")
       .map {
         case (osmId, Some(data)) =>

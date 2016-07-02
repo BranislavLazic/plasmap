@@ -40,7 +40,7 @@ javaOptions in run ++= Seq(
   "-XX:+PrintFlagsFinal"
 )*/
 
-//resolvers ++= Common.resolvers
+resolvers ++= Common.resolvers
 
 // Commons
 lazy val commonsUtil = project.in(file("util"))

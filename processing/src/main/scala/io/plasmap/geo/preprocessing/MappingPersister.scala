@@ -2,6 +2,7 @@ package io.plasmap.geo.preprocessing
 
 import java.io.IOException
 
+import akka.NotUsed
 import akka.stream.ActorAttributes._
 import akka.stream.Supervision._
 import akka.stream.scaladsl.Flow
@@ -22,11 +23,11 @@ case class MappingPersister(ec:ExecutionContext) {
 
   def createPersistMappingFlow(toMapping: (OsmDenormalizedObject) => OsmMapping = ProcessingUtilities.toMapping,
                                storeMapping: (OsmMapping) => Future[Option[OsmMapping]] = defaultStoreMapping
-                                ): Flow[OsmDenormalizedObject, FlowError \/ OsmId, Unit] = {
+                                ): Flow[OsmDenormalizedObject, FlowError \/ OsmId, NotUsed] = {
 
     import scalaz.{Sink => _, Source => _, _}
 
-    val subFlow: Flow[OsmDenormalizedObject, (OsmId, Option[OsmMapping]), Unit] = Flow[OsmDenormalizedObject]
+    val subFlow: Flow[OsmDenormalizedObject, (OsmId, Option[OsmMapping]), NotUsed] = Flow[OsmDenormalizedObject]
       .map(toMapping)
       .log(s"MappingCreated")
       .mapAsync(16)((mapping) => storeMapping(mapping).map(x => {
@@ -36,7 +37,7 @@ case class MappingPersister(ec:ExecutionContext) {
       .log("PersistMapping")
 
 
-    val validatedFlow: Flow[OsmDenormalizedObject, FlowError \/ OsmId, Unit] = subFlow
+    val validatedFlow: Flow[OsmDenormalizedObject, FlowError \/ OsmId, NotUsed] = subFlow
       .log("PersistMappingGrouped")
       .map {
         case (osmId, Some(mapping)) =>

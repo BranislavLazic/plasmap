@@ -40,24 +40,24 @@ class GeoCalculatorSpec extends Specification {
 
     s"calculate that Essen districts are contained in Essen" >> {
       Fragment.foreach(districtsEssen) { district =>
-        s"${district.tags.filter(_.key == "name")}\n" ! { GeoCalculator.within(district,essen) must beTrue}
+        s"${district.tags.filter(_.key == "name")}\n" ! { GeoCalculator.within(district.geometry,essen.geometry) must beTrue}
       }
     }
 
     s"calculate that Muehlheim distritcs are not contained in Essen" >> {
       Fragment.foreach(districtsMuehlheim) { district =>
-        s"${district.tags.filter(_.key == "name")}\n" ! { GeoCalculator.within(district,essen) must beFalse}
+        s"${district.tags.filter(_.key == "name")}\n" ! { GeoCalculator.within(district.geometry,essen.geometry) must beFalse}
       }
     }
     s"calculate that Muelheim districts are contained in Muehlheim" >> {
       Fragment.foreach(districtsMuehlheim) { district =>
-        s"${district.tags.filter(_.key == "name")}\n" ! { GeoCalculator.within(district,muehlheim) must beTrue}
+        s"${district.tags.filter(_.key == "name")}\n" ! { GeoCalculator.within(district.geometry,muehlheim.geometry) must beTrue}
       }
     }
 
     s"calculate that Essen districts are not contained in Muehlheim" >> {
       Fragment.foreach(districtsEssen) { district =>
-        s"${district.tags.filter(_.key == "name")}\n" ! { GeoCalculator.within(district,muehlheim) must beFalse}
+        s"${district.tags.filter(_.key == "name")}\n" ! { GeoCalculator.within(district.geometry,muehlheim.geometry) must beFalse}
       }
     }
   }

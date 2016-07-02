@@ -28,7 +28,6 @@ import scalaz.{Sink => _, Source => _, _}
  */
 class OsmPreprocessorSpec
   extends Specification
-  with OsmTestData
   with IsolatedMockFactory
   with ProxyMockFactory {
 
@@ -39,165 +38,12 @@ class OsmPreprocessorSpec
 
   import scala.concurrent.ExecutionContext.Implicits.global
 
-  private val wayParser = OsmParser("geo-preprocessing/src/test/resources/ways-test.osm")
-  private val ways: List[OsmWay] = (for {
-    wayOpt <- wayParser
-    way <- wayOpt
-  } yield way).toList.collect { case way: OsmWay => way }.map(_.asInstanceOf[OsmWay]).take(30)
-
-  private val relationParser = OsmParser("geo-preprocessing/src/test/resources/relation-test.osm")
-  private val relations: List[OsmRelation] = (for {
-    relationOpt <- relationParser
-    relation <- relationOpt
-  } yield relation).toList.collect { case relation: OsmRelation => relation }.map(_.asInstanceOf[OsmRelation]).take(20)
 
   //val mappings: Map[OsmId, Point] = elements.collect { case node: OsmNode => node }.map((node) => node.id -> Point(node.point.hash)).toMap
 
   val gen = OsmObjectGenerator()
 
-  "The OsmPreprocessor" should {
-
-    /*"denormalize a way" in {
-
-      val mappings: Map[OsmId, Point] = (for {
-        way <- ways
-        nd <- way.nds
-        point = Point(gen.generatePoint.hash)
-      } yield nd -> point).toMap
-
-      val expectedWays = for {
-        way <- ways
-      } yield Denormalizer.denormalizeWay(way, mappings)
-
-      val numNds = ways.foldLeft(0)((acc, way) => way.nds.size + acc)
-
-      val mappingF = mockFunction[OsmId, Future[Option[OsmNodeMapping]]]
-      mappingF expects * onCall { id: OsmId =>
-        val mappingOpt: Option[Point] = mappings.get(id)
-        Future {
-          mappingOpt.map((mapping) => {
-            OsmNodeMapping(mapping.hash, id, DateTime.now)
-          })
-        }
-      } repeat numNds
-
-
-      val wayFlow: Flow[OsmWay, OsmDenormalizedWay, Unit] = OsmPreprocessor.denormalizeWayFlow(mappingF)
-
-      val eventualDenormalizedWaysFut: Future[List[OsmDenormalizedWay]] =
-        Source(ways)
-          .via(wayFlow)
-          .runFold(List.empty[OsmDenormalizedWay])((list, dway: OsmDenormalizedWay) => dway :: list)
-
-      val eventualDenormalizedWays: List[OsmDenormalizedWay] = Await.result(eventualDenormalizedWaysFut, 10 seconds)
-      eventualDenormalizedWays must containAllOf(expectedWays)
-    }
-*/
-    "denormalize a relation" in {
-
-      val genNodeData: List[((OsmId, Long), ((Long, OsmId, OsmType), HashPoint), (OsmId, Point))] = for {
-        relation <- relations
-        ref <- relation.refs if ref.typ == OsmTypeNode
-        id = ref.ref
-        hash: Long = gen.generatePoint.hash
-        point = Point(hash)
-      } yield ((id, hash), ((hash, id, ref.typ), point), (id, point))
-
-      val nodeMappings: Map[OsmId, Long] = genNodeData.map(_._1).toMap
-      val nodeData: Map[(Long, OsmId, OsmType), HashPoint] = genNodeData.map(_._2).toMap
-      val nodeRefs: Map[OsmId, Point] = genNodeData.map(_._3).toMap
-
-      val genWayData: List[((OsmId, Long), ((Long, OsmId, OsmType), LineString), (OsmId, LineString))] = for {
-        relation <- relations
-        ref <- relation.refs if ref.typ == OsmTypeWay
-        id = ref.ref
-        hash: Long = gen.generatePoint.hash
-        lineString = gen.generateLinestring
-      } yield ((id, hash), ((hash, id, ref.typ), lineString), (id, lineString))
-
-      val wayMappings: Map[OsmId, Long] = genWayData.map(_._1).toMap
-      val wayData: Map[(Long, OsmId, OsmType), LineString] = genWayData.map(_._2).toMap
-      val wayRefs: Map[OsmId, LineString] = genWayData.map(_._3).toMap
-
-      val genRelationData: List[((OsmId, Long), ((Long, OsmId, OsmType), GeometryCollection), (OsmId, GeometryCollection))] = for {
-        relation <- relations
-        ref <- relation.refs if ref.typ == OsmTypeRelation
-        id = ref.ref
-        hash: Long = gen.generatePoint.hash
-        geometryCollection = gen.generateGeometryCollection
-      } yield ((id, hash), ((hash, id, ref.typ), geometryCollection), (id, geometryCollection))
-
-      val relationMappings: Map[OsmId, Long] = genRelationData.map(_._1).toMap
-      val relationData: Map[(Long, OsmId, OsmType), GeometryCollection] = genRelationData.map(_._2).toMap
-      val relationRefs: Map[OsmId, GeometryCollection] = genRelationData.map(_._3).toMap
-
-      val expectedRelations = for {
-        relation <- relations
-      } yield Denormalizer.denormalizeRelation(relation, nodeRefs, wayRefs, relationRefs)
-
-      val numRefs = relations.foldLeft(0)((acc, relation) => relation.refs.size + acc)
-
-      val mappingF = mockFunction[OsmId, OsmType, Future[Option[OsmMapping]]]
-      mappingF expects(*, *) onCall { (id: OsmId, typ: OsmType) => typ match {
-          case OsmTypeNode => Future {
-            nodeMappings.get(id).map(OsmNodeMapping(_, id, DateTime.now()))
-          }
-          case OsmTypeWay => Future {
-            wayMappings.get(id).map(OsmWayMapping(_, id, DateTime.now()))
-          }
-          case OsmTypeRelation => Future {
-            relationMappings.get(id).map(OsmRelationMapping(_, id, DateTime.now()))
-          }
-        }
-      } repeat numRefs
-
-      val dataF = mockFunction[Long, OsmId, OsmType, Future[Option[OsmBB]]]
-      dataF expects (*,*,*) onCall { (bb:Long, id: OsmId, typ:OsmType) => typ match {
-        case OsmTypeNode =>
-          val key = (bb,id,typ)
-          val pointOpt: Option[Point] = nodeData.get(key)
-          Future {
-            pointOpt.map((point) => {
-              val node = OsmDenormalizedNode(id = id, tags = List.empty[OsmTag],geometry = point)
-              OsmBB(bb,id,node)
-            })
-          }
-        case OsmTypeWay =>
-          val key = (bb,id,typ)
-          val lineStringOpt: Option[LineString] = wayData.get(key)
-          Future {
-            lineStringOpt.map((lineString) => {
-              val way = OsmDenormalizedWay(id = id, tags = List.empty[OsmTag],geometry = lineString)
-              OsmBB(bb,id,way)
-            })
-          }
-        case OsmTypeRelation =>
-          val key = (bb,id,typ)
-          val geometryCollectionOpt: Option[GeometryCollection] = relationData.get(key)
-          Future {
-            geometryCollectionOpt.map((geometryCollection) => {
-              val relation = OsmDenormalizedRelation(id = id, tags = List.empty[OsmTag],geometry = geometryCollection)
-              OsmBB(bb,id,relation)
-            })
-          }
-      }
-      } repeat numRefs
-
-
-      val relationFlow: Flow[OsmRelation, Disjunction[FlowError, OsmDenormalizedRelation], Unit] = OsmPreprocessor.denormalizeRelationFlow(
-        mapRef = mappingF,
-        toData = dataF
-      )
-
-      val eventualDenormalizedRelsFut: Future[List[Disjunction[FlowError, OsmDenormalizedRelation]]] =
-        Source(relations)
-          .via(relationFlow)
-          .runFold(List.empty[Disjunction[FlowError, OsmDenormalizedRelation]])((list, drelation: Disjunction[FlowError, OsmDenormalizedRelation]) => drelation :: list)
-
-      val eventualDenormalizedRelations: List[Disjunction[FlowError, OsmDenormalizedRelation]] = Await.result(eventualDenormalizedRelsFut, 10 seconds)
-      //eventualDenormalizedRelations.map(_.toString) must containAllOf(expectedRelations.map(_.successNel[FlowError].toString))
-      expectedRelations(0) must be_==(eventualDenormalizedRelations(0).getOrElse(0))
-    }
+  /*  "The OsmPreprocessor" should {
 
 
     /*"persist mappings - success case" in {
@@ -643,9 +489,9 @@ class OsmPreprocessorSpec
       set must containAllOf(toErrors(errors_1).toSeq)
       result must contain(successes_2)
       set must containAllOf(toErrors(errors_4).toSeq)
-    }*/
+    }
 
-  }
+  }*/
 
 
 }

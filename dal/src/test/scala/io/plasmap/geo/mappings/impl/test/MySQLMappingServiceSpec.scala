@@ -1,7 +1,7 @@
 package io.plasmap.geo.mappings.impl.test
 
 import io.plasmap.geo.mappings._
-import io.plasmap.geo.mappings.impl.RedisMappingService
+import io.plasmap.geo.mappings.impl.MySQLMappingService
 import io.plasmap.model.OsmId
 import org.joda.time.DateTime
 import org.scalacheck.Arbitrary
@@ -10,11 +10,15 @@ import org.specs2.ScalaCheck
 import org.specs2.mutable.Specification
 
 import scala.concurrent.Await
-import scala.concurrent.duration._
 import scala.concurrent.ExecutionContext.Implicits.global
-class RedisMappingServiceSpec extends Specification with ScalaCheck {
+import scala.concurrent.duration._
+
+class MySQLMappingServiceSpec extends Specification with ScalaCheck {
 
   sequential
+
+  val unitTest = true
+  skipAllIf(unitTest)
 
   val duration = 30 seconds
 
@@ -44,7 +48,7 @@ class RedisMappingServiceSpec extends Specification with ScalaCheck {
 
   implicit def relationMappingArb = Arbitrary { relationMapping }
 
-  val service = RedisMappingService()
+  val service = MySQLMappingService()
 
   "The OsmMappingService" should {
 

@@ -17,12 +17,13 @@ object OsmTestData {
     case rel: OsmDenormalizedRelation => rel
   }
 
-  private[this] val cityEssenParser = OsmGeoJSONBoundaryParser("util/src/test/resources/city.essen.geojson")(Codec.UTF8)
-  private[this] val cityMuehlheimParser = OsmGeoJSONBoundaryParser("util/src/test/resources/city.muehlheim.geojson")(Codec.UTF8)
-  private[this] val cityDuisburgParser = OsmGeoJSONBoundaryParser("util/src/test/resources/city.duisburg.geojson")(Codec.UTF8)
-  private[this] val districtsEssenParser = OsmGeoJSONBoundaryParser("util/src/test/resources/districts.essen.geojson")(Codec.UTF8)
-  private[this] val districtsMuehlheimParser = OsmGeoJSONBoundaryParser("util/src/test/resources/districts.muehlheim.geojson")(Codec.UTF8)
-  private[this] val districtsDuisburgParser = OsmGeoJSONBoundaryParser("util/src/test/resources/districts.duisburg.geojson")(Codec.UTF8)
+  private val testdataPath: String = "util/src/main/resources/"
+  private[this] val cityEssenParser = OsmGeoJSONBoundaryParser(testdataPath + "city.essen.geojson")(Codec.UTF8)
+  private[this] val cityMuehlheimParser = OsmGeoJSONBoundaryParser(testdataPath + "city.muehlheim.geojson")(Codec.UTF8)
+  private[this] val cityDuisburgParser = OsmGeoJSONBoundaryParser(testdataPath + "city.duisburg.geojson")(Codec.UTF8)
+  private[this] val districtsEssenParser = OsmGeoJSONBoundaryParser(testdataPath + "districts.essen.geojson")(Codec.UTF8)
+  private[this] val districtsMuehlheimParser = OsmGeoJSONBoundaryParser(testdataPath + "districts.muehlheim.geojson")(Codec.UTF8)
+  private[this] val districtsDuisburgParser = OsmGeoJSONBoundaryParser(testdataPath + "districts.duisburg.geojson")(Codec.UTF8)
 
   private[this] val cityEssen: List[OsmDenormalizedRelation] = (for {opt <- cityEssenParser
   } yield opt).flatten.collect(relations).toList

@@ -3,25 +3,25 @@ package io.plasmap.geo.preprocessing
 import _root_.io.plasmap.geo.data.{OsmBB, OsmStorageService}
 import _root_.io.plasmap.model._
 import _root_.io.plasmap.serializer.{OsmDenormalizedSerializer, OsmSerializer}
-import _root_.io.plasmap.util.streams.Utilities.{OsmDenormalisedObjectEncoder, OsmObjectEncoder}
 import akka.NotUsed
 import akka.actor._
-import akka.stream.ActorAttributes.supervisionStrategy
-import akka.stream.Supervision.resumingDecider
 import akka.stream._
-import akka.stream.scaladsl.{Sink, Source, _}
-import com.softwaremill.react.kafka.{ConsumerProperties, ProducerProperties, ReactiveKafka}
+import akka.stream.scaladsl.{Sink, _}
 import com.typesafe.config.ConfigFactory
 import com.typesafe.scalalogging.Logger
 import io.plasmap.geo.mappings.{MappingService, OsmMapping, OsmNodeMapping}
-import kafka.serializer.DefaultDecoder
+import io.plasmap.geo.util.KafkaTopics._
+import io.plasmap.geo.util.LoggingUtil._
+import io.plasmap.geo.util.OsmObjectEncoder.OsmObjectEncoder
+import io.plasmap.geo.util.{KafkaUtil, OsmDenormalisedObjectEncoder}
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.Future
 import scala.io.StdIn
 import scala.language.postfixOps
-import scala.util.Try
-import scalaz._
+import scala.util.Success
+import scalaz.{Failure => ZFailure, Success => ZSuccess, _}
+
 
 /**
   * Main class for preprocessing osm objects.
@@ -30,7 +30,7 @@ import scalaz._
   */
 object OsmPreprocessor {
 
-  val log = Logger(LoggerFactory.getLogger(OsmPreprocessor.getClass.getName))
+  val log = Logger(LoggerFactory.getLogger("processing"))
 
   implicit lazy val actorSystem = ActorSystem("preprocessing")
   implicit lazy val materializer = ActorMaterializer()
@@ -51,50 +51,6 @@ object OsmPreprocessor {
   lazy val kafkaHost = config.getString("plasmap.preprocessing.kafka")
   lazy val zkHost = config.getString("plasmap.preprocessing.zk")
 
-  lazy val kafka = new ReactiveKafka()
-
-  var processedElementCounter = 0L
-  var parsedElementCounter = 0L
-
-  def parsedCounter[T <: OsmObject](typ: OsmType)(parsed: T): T = {
-    val rate: Int = typ match {
-      case OsmTypeNode => 100000
-      case OsmTypeWay => 10000
-      case OsmTypeRelation => 100
-    }
-    if (parsedElementCounter % rate == 0) {
-      log.debug(s"Parsed $parsedElementCounter elements in total. Currently at ${parsed.id}.")
-    }
-    parsedElementCounter += 1
-    parsed
-  }
-
-  def processedCounter[T](typ: OsmType)(elem: T): T = {
-    val rate: Int = typ match {
-      case OsmTypeNode => 1000000
-      case OsmTypeWay => 100000
-      case OsmTypeRelation => 1000
-    }
-    if (processedElementCounter % rate == 0) {
-      log.info(s"Consumed $processedElementCounter elements in total.")
-    }
-    processedElementCounter += 1
-    elem
-  }
-
-  val nodesTopic: String = "osm_nodes"
-  val nodesFailedTopic: String = "osm_nodes_failed"
-  val waysTopic: String = "osm_ways"
-  val waysFailedTopic: String = "osm_ways_failed"
-  val relationsTopic: String = "osm_relations"
-  val relationsFailedTopic: String = "osm_relations_failed"
-
-  val clientId = "preprocessing"
-  val persisterTopic = "osm_denormalised"
-  val persisterIndexGroup: String = "index"
-  val persisterDataGroup: String = "data"
-  val persisterDataByTagGroup: String = "data_tag"
-  val persisterMappingGroup: String = "mapping"
 
   def createErrorFlow(failureTopic: String) = Flow.fromGraph(
     GraphDSL.create() { implicit builder =>
@@ -104,11 +60,13 @@ object OsmPreprocessor {
 
       val rightOutput = builder.add(Flow[OsmDenormalizedObject])
 
-      val failureProperties: ProducerProperties[OsmObject] =
-        ProducerProperties(kafkaHost, failureTopic, clientId, OsmObjectEncoder, OsmObjectEncoder.partitionizer)
-          .asynchronous()
-          .noCompression()
-      val failureSink = Sink.fromSubscriber(kafka.publish(failureProperties))
+      import KafkaUtil._
+      val failureSink = Flow[Array[Byte]]
+        .map(bytesToProducerRecord(failureTopic))
+        .to(kafkaSink(kafkaHost))
+
+      val encode = Flow[OsmObject]
+        .map(OsmObjectEncoder.toBytes)
 
       val logging: Flow[FlowError, OsmObject, NotUsed] = Flow[FlowError]
         .filter(_.isInstanceOf[CouldNotDenormaliseObject])
@@ -130,106 +88,91 @@ object OsmPreprocessor {
         .filter(_.isLeft)
         .map(_.toEither.left.get)
 
-      branch.out(1) ~> filterFailed ~> logging ~> failureSink
+      branch.out(1) ~> filterFailed ~> logging ~> encode ~> failureSink
 
       FlowShape(branch.in, rightOutput.outlet)
     })
+
 
   def denormalise(typ: OsmType, failed: Boolean = false, offset: Int = 0) = {
 
     val sourceTopic = getTopic(typ, failed)
     val failureTopic = getTopic(typ, failed = true)
 
-    val props = createConsumerProps(zkHost, kafkaHost, sourceTopic, "preprocessing")
+    import KafkaUtil._
+    val source = kafkaSource(kafkaHost)(sourceTopic, consumerGroup)
+      .map(consumerRecordToBytes)
 
-    val source: Source[Array[Byte], NotUsed] = Source.fromPublisher(kafka.consume(props))
-      .withAttributes(supervisionStrategy(resumingDecider)) // Prevent kafka error to fail whole pipeline
-      .drop(offset)
-      .map(_.message()) // Extract content
+    val successSink = Flow[OsmDenormalizedObject]
+      .map(OsmDenormalisedObjectEncoder.toBytes)
+      .map(bytesToProducerRecord(persisterTopic))
+      .to(kafkaSink(kafkaHost))
 
-    log.info(s"${Console.GREEN}Kafka consumer initializer with:\n${props.dump}${Console.RESET}")
-
-    val successProperties: ProducerProperties[OsmDenormalizedObject] = ProducerProperties(kafkaHost, persisterTopic, clientId, OsmDenormalisedObjectEncoder, OsmDenormalisedObjectEncoder.partitionizer)
-      .asynchronous()
-      .noCompression()
-    val successSink = Sink.fromSubscriber(kafka.publish(successProperties))
+    log.info(s"${Console.GREEN}Kafka consumer initialized.${Console.RESET}")
 
     val denormalisationFlow = Flow[Array[Byte]]
       .map(OsmSerializer.fromBinary) // Deserialise
-      .map(logFailure)
-      .filter(_.isSuccess) // Filter out the stuff that could not be deserialised
-      .map(_.get) // Actually get the deserialised values
-      .map(parsedCounter(typ)) // Count how many nodes were parsed
+      .map(logFailure[OsmObject](e => log.error(s"Failed to deserialise $e")))
+      .collect { case Success(element) => element }
+      .map(parsedCounter) // Count how many nodes were parsed
       .via(objectFlow(typ))
       .via(createErrorFlow(failureTopic))
-      .map(processedCounter(typ))
+      .map(processedCounter)
 
-    println(s"${Console.GREEN}Press key to start processing...${Console.RESET}")
+    log.info(s"${Console.GREEN}Press key to start processing...${Console.RESET}")
     StdIn.readLine()
     source.via(denormalisationFlow).to(successSink).run()
-    println(s"Running denormalisation for topic $sourceTopic.")
+    log.info(s"Running denormalisation for topic $sourceTopic.")
     waitForUserInput()
   }
 
   def persistIndex(offset: Int = 0) = {
 
-    val group: String = persisterIndexGroup
     val persisterFlow: Flow[OsmDenormalizedObject, Disjunction[FlowError, OsmId], NotUsed] =
       IndexPersister(indexingEC, materializer).createPersistIndexFlow()
 
-    runPersister(persisterFlow, group, offset)
+    runPersister(persisterFlow, persisterIndexGroup, offset)
   }
 
   def persistMapping(offset: Int = 0) = {
 
-    val group: String = persisterMappingGroup
     val persisterFlow: Flow[OsmDenormalizedObject, Disjunction[FlowError, OsmId], NotUsed] =
       MappingPersister(mappingEC).createPersistMappingFlow()
 
-    runPersister(persisterFlow, group, offset)
+    runPersister(persisterFlow, persisterMappingGroup, offset)
   }
 
   def dataPersister(offset: Int = 0) = {
 
-    val group: String = persisterDataGroup
     val persisterFlow: Flow[OsmDenormalizedObject, Disjunction[FlowError, OsmId], NotUsed] =
       DataPersister(dataEC).createPersistDataFlow()
 
-    runPersister(persisterFlow, group, offset)
+    runPersister(persisterFlow, persisterDataGroup, offset)
   }
 
   def dataByTagPersister(offset: Int = 0) = {
 
-    val group: String = persisterDataByTagGroup
     val persisterFlow: Flow[OsmDenormalizedObject, Disjunction[FlowError, OsmId], NotUsed] =
       DataByTagPersister(dataTagEC).createPersistDataByTagFlow()
 
-    runPersister(persisterFlow, group, offset)
+    runPersister(persisterFlow, persisterDataByTagGroup, offset)
   }
 
   def runPersister(persisterFlow: Flow[OsmDenormalizedObject, Disjunction[FlowError, OsmId], NotUsed], group: String, offset: Int): Unit = {
-    val props = createConsumerProps(zkHost, kafkaHost, persisterTopic, group)
 
-    val source: Source[Array[Byte], NotUsed] = Source.fromPublisher(kafka.consume(props))
-      .withAttributes(supervisionStrategy(resumingDecider)) // Prevent kafka error to fail whole pipeline
-      .drop(offset)
-      .map(_.message()) // Extract content
+    import KafkaUtil._
+    val source = kafkaSource(kafkaHost)(persisterTopic, group)
+      .map(consumerRecordToBytes)
 
-    log.info(s"${Console.GREEN}Kafka consumer initializer with:\n${props.dump}${Console.RESET}")
+    log.info(s"${Console.GREEN}Kafka consumer initialised for topic $persisterTopic${Console.RESET}")
 
-    val successProperties: ProducerProperties[OsmDenormalizedObject] = ProducerProperties(kafkaHost, persisterTopic, clientId, OsmDenormalisedObjectEncoder, OsmDenormalisedObjectEncoder.partitionizer)
-      .asynchronous()
-      .noCompression()
-
-    //val successSink = Sink(kafka.publish(successProperties))
     // for the moment don't do error logging & fixing
     val sink = Sink.ignore
 
     val flow: Flow[Array[Byte], FlowError \/ OsmId, NotUsed] = Flow[Array[Byte]]
       .map(OsmDenormalizedSerializer.fromBinary) // Deserialise
-      .map(logFailure)
-      .filter(_.isSuccess) // Filter out the stuff that could not be deserialised
-      .map(_.get) // Actually get the deserialised values
+      .map(logFailure(e => log.error(s"Failed to deserialise element: $e")))
+      .collect { case Success(element) => element }
       .via(persisterFlow)
 
     println(s"${Console.GREEN}Press key to start $group...${Console.RESET}")
@@ -293,67 +236,24 @@ object OsmPreprocessor {
   }
 
 
-  def logFailure[T](intent: Try[T]): Try[T] = {
-    intent match {
-      case scala.util.Success(_) =>
-      case scala.util.Failure(e) => log.error(s"Failed to deserialise $e")
-    }
-    intent
-  }
-
-  def getTopic(typ: OsmType, failed: Boolean): String =
-    if (failed) {
-      getFailureTopic(typ)
-    } else {
-      getTopic(typ)
-    }
-
-  def getTopic(typ: OsmType): String = typ match {
-    case OsmTypeNode => nodesTopic
-    case OsmTypeWay => waysTopic
-    case OsmTypeRelation => relationsTopic
-  }
-
-  def getFailureTopic(typ: OsmType): String = typ match {
-    case OsmTypeNode => nodesFailedTopic
-    case OsmTypeWay => waysFailedTopic
-    case OsmTypeRelation => relationsFailedTopic
-  }
-
-  def createConsumerProps(zkHost: String, kafkaHost: String, topicName: String, groupId: String): ConsumerProperties[Array[Byte]] = {
-    ConsumerProperties(
-      brokerList = kafkaHost,
-      zooKeeperHost = zkHost,
-      topic = topicName,
-      groupId = groupId,
-      decoder = new DefaultDecoder())
-      .setProperty("rebalance.max.retries", "10")
-      .setProperty("rebalance.backoff.ms", "300000")
-      .setProperty("fetch.message.max.bytes", "10000000")
-      .setProperty("offsets.storage", "kafka")
-      .setProperty("dual.commit.enabled", "true")
-      .setProperty("zookeeper.session.timeout.ms", "300000")
-      .consumerTimeoutMs(10000)
-  }
-
   def objectFlow(typ: OsmType): Flow[OsmObject, FlowError \/ OsmDenormalizedObject, NotUsed] = typ match {
     case OsmTypeNode =>
       val denormalisationFlow = NodeFlow.denormaliseNodeFlow
       UtilityFlows.filterNode.via(denormalisationFlow)
     case OsmTypeWay =>
       val mapNd: (OsmId) => Future[Option[OsmNodeMapping]] = mappingService.findNodeMapping(_)(mappingEC)
-      val denormalisationFlow = WayFlow.denormalizeWayFlow(mapNd)(denormalisingEC,materializer)
+      val denormalisationFlow = WayFlow.denormalizeWayFlow(mapNd)(denormalisingEC, materializer)
       UtilityFlows.filterWay.via(denormalisationFlow)
     case OsmTypeRelation =>
       val mapRef: (OsmId, OsmType) => Future[Option[OsmMapping]] = mappingService.findMapping(_, _)(mappingEC)
       val toData: (Long, OsmId, OsmType) => Future[Option[OsmBB]] = storageService.findBB(_, _, _)(dataEC)
-      val denormalisationFlow = RelationFlow.denormalizeRelationFlow(mapRef, toData)(denormalisingEC,materializer)
+      val denormalisationFlow = RelationFlow.denormalizeRelationFlow(mapRef, toData)(denormalisingEC, materializer)
       UtilityFlows.filterRelation.via(denormalisationFlow)
   }
 
 
   def waitForUserInput(): Unit = {
-    println(s"${Console.RED}Press key to exit.${Console.RESET}")
+    log.info(s"${Console.RED}Press key to exit.${Console.RESET}")
     StdIn.readLine()
     import scala.concurrent.ExecutionContext.Implicits.global
     val f = actorSystem.terminate()

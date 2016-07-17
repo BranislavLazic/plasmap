@@ -22,7 +22,7 @@
     </logger>
 
 
-    <logger name="io.plasmap.geo.mappings.impl.ElasticIndexingService" level="ERROR">
+    <logger name="io.plasmap.geo.io.plasmap.geo.mappings.impl.ElasticIndexingService" level="ERROR">
         <appender-ref ref="FILE"/>
     </logger>
 
@@ -31,7 +31,7 @@
     </logger>
 
 
-    <logger name="io.plasmap.geo.mappings.OsmMappingActor" level="ERROR">
+    <logger name="io.plasmap.geo.io.plasmap.geo.mappings.OsmMappingActor" level="ERROR">
         <appender-ref ref="FILE"/>
     </logger>
 

@@ -43,10 +43,10 @@ class OsmPreprocessorSpec
 
   val gen = OsmObjectGenerator()
 
-  /*  "The OsmPreprocessor" should {
+   //"The OsmPreprocessor" should {
 
 
-    /*"persist mappings - success case" in {
+     /*"persist mappings - success case" in {
 
       val toMapping = mockFunction[OsmDenormalizedObject, OsmMapping]
       val storeMapping = mockFunction[OsmMapping, Future[Option[OsmMapping]]]
@@ -489,9 +489,7 @@ class OsmPreprocessorSpec
       set must containAllOf(toErrors(errors_1).toSeq)
       result must contain(successes_2)
       set must containAllOf(toErrors(errors_4).toSeq)
-    }
-
-  }*/
-
+    }*/
+   //}
 
 }

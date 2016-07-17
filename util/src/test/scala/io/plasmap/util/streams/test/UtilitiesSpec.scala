@@ -9,7 +9,6 @@ import akka.stream._
 import akka.stream.scaladsl._
 import org.specs2.mutable.Specification
 
-import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
 

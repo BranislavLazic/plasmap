@@ -21,7 +21,7 @@ resolvers ++= Common.resolvers
 
 libraryDependencies ++= Seq(
   "com.twitter" %% "util-codec" % "6.23.0",
-  "com.softwaremill.reactivekafka" % "reactive-kafka-core_2.11" % "0.8.8",
+  "com.typesafe.akka" %% "akka-stream-kafka" % "0.11-M3",
   "org.apache.commons" % "commons-compress" % "1.8.1",
   "com.twitter" %% "util-codec" % "6.23.0",
   Common.Dependencies.Geow,

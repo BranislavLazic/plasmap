@@ -28,7 +28,7 @@ object QueryTranslator {
   final case object UnknownCommand extends TranslationError
 
   def translate(pmQuery: PMQuery)(implicit mat:Materializer, ec:ExecutionContext): TranslationError \/ Query[_ <: Shape, _] = {
-    log.info("translating query: $pmQuery")
+    log.info(s"translating query: $pmQuery")
 
     def poiAreaMatch[A](area:PMAreaQuery)(implicit instance:POI[A]) = {
       translate(area) match {

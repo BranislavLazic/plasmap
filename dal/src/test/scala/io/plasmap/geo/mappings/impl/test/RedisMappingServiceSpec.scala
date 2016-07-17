@@ -1,7 +1,7 @@
 package io.plasmap.geo.mappings.impl.test
 
 import io.plasmap.geo.mappings._
-import io.plasmap.geo.mappings.impl.PostgresSQLMappingService
+import io.plasmap.geo.mappings.impl.RedisMappingService
 import io.plasmap.model.OsmId
 import org.joda.time.DateTime
 import org.scalacheck.Arbitrary
@@ -12,9 +12,12 @@ import org.specs2.mutable.Specification
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.concurrent.ExecutionContext.Implicits.global
-class PostgresSQLMappingServiceSpec extends Specification with ScalaCheck {
+class RedisMappingServiceSpec extends Specification with ScalaCheck {
 
   sequential
+
+  val unitTest = true
+  skipAllIf(unitTest)
 
   val duration = 30 seconds
 
@@ -44,58 +47,40 @@ class PostgresSQLMappingServiceSpec extends Specification with ScalaCheck {
 
   implicit def relationMappingArb = Arbitrary { relationMapping }
 
-  val service = PostgresSQLMappingService()
+  val service = RedisMappingService()
 
   "The OsmMappingService" should {
 
     "successfully insert an \"OsmNodeMapping\"" ! prop{ mapping: OsmNodeMapping =>
       {
-        val result1 = Await.result(service.insertNodeMapping(mapping), duration)
-        result1 must beSome(mapping)
+        val result = Await.result(service.insertNodeMapping(mapping), duration)
+        result must beSome(mapping)
         Thread.sleep(100)
-
-        val result2 = Await.result(service.findNodeMapping(mapping.osmId), duration)
+        val future = service.findNodeMapping(mapping.osmId)
+        val result2 = Await.result(future, duration)
         result2 must beSome(mapping)
-
-        val result3 = Await.result(service.deleteNodeMapping(mapping), duration)
-        result3 must beSome(mapping)
-
-        val result4 = Await.result(service.findNodeMapping(mapping.osmId), duration)
-        result4 must beNone
       }
     }
     
     "successfully insert an \"OsmWayMapping\"" ! prop{ mapping: OsmWayMapping =>
       {
-        val result1 = Await.result(service.insertWayMapping(mapping), duration)
-        result1 must beSome(mapping)
+        val result = Await.result(service.insertWayMapping(mapping), duration)
+        result must beSome(mapping)
         Thread.sleep(100)
-
-        val result2 = Await.result(service.findWayMapping(mapping.osmId), duration)
+        val future = service.findWayMapping(mapping.osmId)
+        val result2 = Await.result(future, duration)
         result2 must beSome(mapping)
-
-        val result3 = Await.result(service.deleteWayMapping(mapping), duration)
-        result3 must beSome(mapping)
-
-        val result4 = Await.result(service.findWayMapping(mapping.osmId), duration)
-        result4 must beNone
       }
     }
     
     "successfully insert an \"OsmRelationMapping\"" ! prop{ mapping: OsmRelationMapping =>
       {
-        val result1 = Await.result(service.insertRelationMapping(mapping), duration)
-        result1 must beSome(mapping)
+        val result = Await.result(service.insertRelationMapping(mapping), duration)
+        result must beSome(mapping)
         Thread.sleep(100)
-
-        val result2 = Await.result(service.findWayMapping(mapping.osmId), duration)
+        val future = service.findRelationMapping(mapping.osmId)
+        val result2 = Await.result(future, duration)
         result2 must beSome(mapping)
-
-        val result3 = Await.result(service.deleteRelationMapping(mapping), duration)
-        result3 must beSome(mapping)
-
-        val result4 = Await.result(service.findRelationMapping(mapping.osmId), duration)
-        result4 must beNone
       }
     }
   }

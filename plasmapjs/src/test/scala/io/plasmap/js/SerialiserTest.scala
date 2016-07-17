@@ -12,7 +12,6 @@ object SerialiserTest extends TestSuite {
     "The Serialiser should work with queries"-{
       def roundtrip = Serialiser.serialiseQuery _ andThen Serialiser.deserialiseQuery
       val query = PMCityFromName("Merkel")
-      println(Serialiser.serialiseQuery(query).asCharBuffer().toString)
       assert(roundtrip(query) == query)
     }
   }

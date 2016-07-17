@@ -1,7 +1,6 @@
 package io.plasmap.js
 
-import boopickle.Unpickle
-import io.plasmap.querymodel.PMCityFromCoordinates
+import io.plasmap.querymodel.{PMCityFromCoordinates, PMCoordinates}
 import utest._
 import utest.framework.TestSuite
 
@@ -10,13 +9,14 @@ import utest.framework.TestSuite
  */
 object WebSocketTest extends TestSuite {
     def tests = TestSuite {
-      "Test Web Socket"-{
+
+      /*"Test Web Socket"-{
         println("---------------------------------------------")
         println("                                             ")
-        val s = PlasmapSocket("ws://localhost:8000/api/websocket", x ⇒ println(s"Message received: $x"))
-        s.sendMessage(PMCityFromCoordinates(1,3))
+        val s = PlasmapSocket("ws://localhost:8000/api/websocket", x ⇒ println(s"Message received: $x"), x => println(x))
+        s.sendMessage(PMCityFromCoordinates(PMCoordinates(1,3)))
         println("                                             ")
         println("---------------------------------------------")
-      }
+      }*/
     }
 }

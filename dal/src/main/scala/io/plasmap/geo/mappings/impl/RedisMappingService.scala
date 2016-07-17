@@ -22,8 +22,8 @@ object RedisMappingService {
   val log = Logger(LoggerFactory.getLogger(RedisMappingService.getClass.getName))
   log.info(s"${Console.GREEN}Created RedisMappingService[host=$hostConfig,port=$portConfig]${Console.RESET}")
 
-  val system = akka.actor.ActorSystem()
-  val redis = new RedisClient(hostConfig, portConfig)(system)
+  lazy val system = akka.actor.ActorSystem()
+  lazy val redis = new RedisClient(hostConfig, portConfig)(system)
 
   def apply() = new RedisMappingService
 }

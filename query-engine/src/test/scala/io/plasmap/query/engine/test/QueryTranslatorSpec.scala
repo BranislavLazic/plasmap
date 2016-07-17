@@ -3,7 +3,7 @@ package io.plasmap.query.engine.test
 import akka.actor.ActorSystem
 import akka.stream.ActorMaterializer
 import io.plasmap.query.engine._
-import io.plasmap.querymodel.{PMCoordinates, PMCityFromCoordinates, PMDistrictsFromCity}
+import io.plasmap.querymodel.{PMCityFromCoordinates, PMCoordinates, PMDistrictsFromArea}
 import org.scalamock.proxy.ProxyMockFactory
 import org.scalamock.specs2.IsolatedMockFactory
 import org.specs2.mutable.Specification
@@ -42,7 +42,7 @@ object QueryTranslatorSpec extends Specification with IsolatedMockFactory with P
     "translate a \"PMDistrictsFromCity\" query" in {
 
       val pmCity = PMCityFromCoordinates(PMCoordinates(lon,lat))
-      val pmDistrict = PMDistrictsFromCity(pmCity)
+      val pmDistrict = PMDistrictsFromArea(pmCity)
 
       val translatedQuery = QueryTranslator.translate(pmDistrict)
       println(s"Got $translatedQuery")

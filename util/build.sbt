@@ -14,7 +14,6 @@ libraryDependencies ++= Seq(
   "org.scalanlp" %% "breeze" % "0.11.2",
   "com.yahoo.datasketches" % "sketches-core" % "0.2.2",
   "org.apache.commons" % "commons-compress" % "1.8.1",
-  "com.softwaremill.reactivekafka" %% "reactive-kafka-core" % "0.8.8",
   "com.twitter" %% "util-codec" % "6.23.0",
   Common.Dependencies.ScalaLogging
 )

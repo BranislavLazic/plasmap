@@ -1,7 +1,7 @@
 package io.plasmap.geo.mappings.impl.test
 
 import io.plasmap.geo.mappings._
-import io.plasmap.geo.mappings.impl.MongoMappingService
+import io.plasmap.geo.mappings.impl.PostgresSQLMappingService
 import io.plasmap.model.OsmId
 import org.joda.time.DateTime
 import org.scalacheck.Arbitrary
@@ -10,12 +10,14 @@ import org.specs2.ScalaCheck
 import org.specs2.mutable.Specification
 
 import scala.concurrent.Await
-import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
-
-class MongoMappingServiceSpec extends Specification with ScalaCheck {
+import scala.concurrent.ExecutionContext.Implicits.global
+class PostgresSQLMappingServiceSpec extends Specification with ScalaCheck {
 
   sequential
+
+  val unitTest = true
+  skipAllIf(unitTest)
 
   val duration = 30 seconds
 
@@ -45,7 +47,7 @@ class MongoMappingServiceSpec extends Specification with ScalaCheck {
 
   implicit def relationMappingArb = Arbitrary { relationMapping }
 
-  val service = MongoMappingService()
+  val service = PostgresSQLMappingService()
 
   "The OsmMappingService" should {
 
@@ -89,7 +91,7 @@ class MongoMappingServiceSpec extends Specification with ScalaCheck {
         result1 must beSome(mapping)
         Thread.sleep(100)
 
-        val result2 = Await.result(service.findRelationMapping(mapping.osmId), duration)
+        val result2 = Await.result(service.findWayMapping(mapping.osmId), duration)
         result2 must beSome(mapping)
 
         val result3 = Await.result(service.deleteRelationMapping(mapping), duration)

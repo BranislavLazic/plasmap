@@ -1,10 +1,14 @@
 package io.plasmap.util
 
-import com.vividsolutions.jts.geom.{Envelope, Coordinate => JTSCoordinate, CoordinateSequence => JTSCoordinateSequence, LinearRing => JTSLinearRing, Point => JTSPoint, Polygon => JTSPolygon}
-import io.plasmap.geohash.GeoHash
+import com.vividsolutions.jts.geom.{Envelope, Coordinate => JTSCoordinate, CoordinateSequence => JTSCoordinateSequence, Geometry => JTSGeometry, LinearRing => JTSLinearRing, Point => JTSPoint, Polygon => JTSPolygon}
+import io.plasmap.geohash._
+import io.plasmap.model.{OsmDenormalizedRelation, OsmId}
 import io.plasmap.model.geometry._
 import io.plasmap.util.GeowGeometryToJTSGeometry._
 import org.geotools.geometry.jts.JTSFactoryFinder
+import org.geotools.referencing.GeodeticCalculator
+
+import scala.util.{Failure, Success, Try}
 
 
 /**
@@ -15,7 +19,85 @@ import org.geotools.geometry.jts.JTSFactoryFinder
 object GeoCalculator {
 
   private val geometryFactory = JTSFactoryFinder.getGeometryFactory(null)
-  private val hashCreator = GeoHash.ultraHigh
+
+  def calculatorForPrecision(precision: Precision): GeoHash = precision match {
+    case PrecisionYottaLow_8BIT => GeoHash.yottaLow_8BIT
+    case PrecisionYottaLow_6BIT => GeoHash.yottaLow_6BIT
+    case PrecisionYottaLow_4BIT => GeoHash.yottaLow_4BIT
+    case PrecisionYottaLow_2BIT => GeoHash.yottaLow_2BIT
+    case PrecisionUltraLow_630KM => GeoHash.ultraLow
+    case PrecisionUltraLow_12BIT => GeoHash.ultraLow_12BIT
+    case PrecisionUltraLow_14BIT => GeoHash.ultraLow_14BIT
+    case PrecisionVeryLow_80KM => GeoHash.veryLow
+    case PrecisionVeryLow_18BIT => GeoHash.veryLow_18BIT
+    case PrecisionLow_20KM => GeoHash.low
+    case PrecisionLow_22BIT => GeoHash.low_22BIT
+    case PrecisionLow_24BIT => GeoHash.low_24BIT
+    case PrecisionMedium_5KM => GeoHash.medium
+    case PrecisionMedium_28BIT => GeoHash.medium_28BIT
+    case PrecisionMedium_30BIT => GeoHash.medium_30BIT
+    case PrecisionMedium_32BIT => GeoHash.medium_32BIT
+    case PrecisionMedium_34BIT => GeoHash.medium_34BIT
+    case PrecisionHigh_100M => GeoHash.high
+    case PrecisionHigh_38BIT => GeoHash.high_38BIT
+    case PrecisionHigh_40BIT => GeoHash.high_40BIT
+    case PrecisionHigh_42BIT => GeoHash.high_42BIT
+    case PrecisionHigh_44BIT => GeoHash.high_44BIT
+    case PrecisionHigh_46BIT => GeoHash.high_46BIT
+    case PrecisionVeryHigh_1M => GeoHash.veryHigh
+    case PrecisionVeryHigh_50BIT => GeoHash.veryHigh_50BIT
+    case PrecisionVeryHigh_52BIT => GeoHash.veryHigh_52BIT
+    case PrecisionVeryHigh_54BIT => GeoHash.veryHigh_54BIT
+    case PrecisionVeryHigh_56BIT => GeoHash.veryHigh_56BIT
+    case PrecisionVeryHigh_58BIT => GeoHash.veryHigh_58BIT
+    case PrecisionUltra_1CM => GeoHash.ultra
+    case PrecisionUltra_62BIT => GeoHash.ultra_62
+    case PrecisionUltraHigh_1MM => GeoHash.ultraHigh
+  }
+
+  def radiusToBoundingBoxes: () => (Point, Double, Precision) => List[Long] = () => {
+    val geodeticCalculator = new GeodeticCalculator()
+    val pointHasher = GeoHash.ultra
+
+    (point, radius, targetPrecision) => {
+
+      geodeticCalculator.setStartingGeographicPoint(point.lon, point.lat)
+
+      geodeticCalculator.setDirection(-90, radius)
+      val left = geodeticCalculator.getDestinationGeographicPoint
+
+      geodeticCalculator.setDirection(90, radius)
+      val right = geodeticCalculator.getDestinationGeographicPoint
+
+      geodeticCalculator.setDirection(0, radius)
+      val top = geodeticCalculator.getDestinationGeographicPoint
+
+      geodeticCalculator.setDirection(180, radius)
+      val bottom = geodeticCalculator.getDestinationGeographicPoint
+
+      val upperLeftUltra = pointHasher.encodeParallel(left.getX, top.getY)
+      val upperLeft = pointHasher.reduceParallelPrecision(upperLeftUltra, targetPrecision)
+
+      val lowerRightUltra = pointHasher.encodeParallel(right.getX, bottom.getY)
+      val lowerRight = pointHasher.reduceParallelPrecision(lowerRightUltra, targetPrecision)
+
+      calculatorForPrecision(targetPrecision)
+        .encapsulatingRectangleHashes(upperLeft, lowerRight)
+        .toList
+        .flatMap(_.toList)
+    }
+  }
+
+  def orthodromicDistance: () => (Point, Point) => Double = () => {
+    val geodeticCalculator = new GeodeticCalculator()
+
+    (start, destination) => {
+      geodeticCalculator.setStartingGeographicPoint(start.lon, start.lat)
+      geodeticCalculator.setDestinationGeographicPoint(destination.lon, destination.lat)
+      geodeticCalculator.getOrthodromicDistance
+    }
+
+  }
 
   def multiPolysFromGeoColl(gc: GeometryCollection): List[MultiPolygon] = {
     gc.geometries.collect { case mp: MultiPolygon ⇒ mp } //TODO: Might have to flatten first.
@@ -28,7 +110,7 @@ object GeoCalculator {
       val isWithin = innerMps.forall(p => outerMps.exists(q => p.within(q)))
       if (isWithin) true
       else {
-        val isAtLeast90PercentIn = innerMps.forall(p => outerMps.exists(q => (q.intersection(p).getArea / p.getArea) >= 0.90))
+        val isAtLeast90PercentIn = fuzzyWithin(outerMps, innerMps)
         isAtLeast90PercentIn
       }
 
@@ -37,9 +119,25 @@ object GeoCalculator {
       val mps = multiPolysFromGeoColl(gc)
       val jtsPoint = geometryFactory.createPoint(new JTSCoordinate(point.lon, point.lat))
       mps.exists(_.contains(jtsPoint))
-    case _ =>
+    case x =>
       //TODO implement
+      println(s"Received $x")
       false
+  }
+
+  def fuzzyWithin(outerMps: List[MultiPolygon], innerMps: List[MultiPolygon]): Boolean = {
+    innerMps.forall(p => outerMps.exists(q =>
+      Try {
+        //println(s"Checking if $p is within $q")
+        val intersection: JTSGeometry = q.intersection(p)
+        (intersection.getArea / p.getArea) >= 0.90
+      } match {
+        case Success(isWithin) => isWithin
+        case Failure(ex) =>
+          ex.printStackTrace()
+          false
+      }
+    ))
   }
 
   def rectangle(geometry: GeometryCollection): List[(Point, Point)] = {

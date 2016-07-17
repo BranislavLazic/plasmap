@@ -27,7 +27,7 @@ object Common {
 
     object Akka {
       private val orga = "com.typesafe.akka"
-      private val version = "2.4.4"
+      private val version = "2.4.7"
 
       val Actor = orga %% "akka-actor" % version
       val Http = orga %% "akka-http-core" % version

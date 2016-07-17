@@ -44,6 +44,7 @@ util/project/target/
 
 # IntelliJ specific
 .idea/
+*.sc
 .idea_modules/
 /database-visualiser
 

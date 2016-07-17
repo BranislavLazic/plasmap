@@ -9,9 +9,12 @@ import akka.NotUsed
 import akka.stream._
 import akka.stream.scaladsl._
 import io.plasmap.geo.data.OsmStorageService
-import io.plasmap.geohash.{GeoHash, PrecisionVeryLow_80KM}
+import io.plasmap.geohash._
 import io.plasmap.util.GeoCalculator
 import com.janschulte.akvokolekta.StreamAdditions._
+import com.typesafe.scalalogging.Logger
+import org.slf4j.LoggerFactory
+
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -160,33 +163,32 @@ object CommunityQuery {
 
 object PointOfInterestQuery {
 
+  val log = Logger(LoggerFactory.getLogger(getClass.getName))
+
   import Queries._
 
-  def apply[A <: AreaElement, B: POI](coordinatesQuery: CoordinatesQuery, toData: (BoundingBox, Tag) ⇒ Future[List[OsmDenormalizedObject]] = retrieveNodeData)
+  def apply[B: POI](coordinatesQuery: CoordinatesQuery, toData: (BoundingBox, Tag) ⇒ Future[List[OsmDenormalizedObject]] = retrieveNodeData)
                                      (implicit mat: Materializer, ec: ExecutionContext): POIQuery[B] = {
     val Poi = implicitly[POI[B]]
 
     val subFlow = Flow[Location]
       .map(_.point)
-      .mapConcat((point) => Poi.tags.map((t) => point -> t))
-      .map((tuple) => createBBTag(tuple._1, tuple._2))
+      .mapConcat(point => Poi.tags.map(t => point -> t))
+      .map(tuple => createBBTag(tuple._1, tuple._2))
       .mapAsync(4)(toData.tupled)
       .mapConcat(identity)
       .map(Poi.fromOsmDenObj)
 
-    val flow: Flow[Location, B, NotUsed] = Utilities.groupAndMapSubFlow[Location, Location, B](identity, subFlow, 100) //(mat, ec)
-    val source = Source.fromGraph(coordinatesQuery.shape).via(flow)
+    //val flow: Flow[Location, B, NotUsed] = Utilities.groupAndMapSubFlow[Location, Location, B](identity, subFlow, 1000) //(mat, ec)
+    val source = Source.fromGraph(coordinatesQuery.shape).via(subFlow)
     Poi.queryFromShape(source)
   }
 
 
-  def apply[A <: AreaElement, B: POI](areaQuery: AreaQuery[A])
-                                     (implicit mat: Materializer, ec: ExecutionContext): POIQuery[B] =
-    fromArea(areaQuery)(implicitly[POI[B]], mat, ec)
-
-  def fromArea[A <: AreaElement, B: POI](areaQuery: AreaQuery[A], toData: (BoundingBox, Tag) ⇒ Future[List[OsmDenormalizedObject]] = retrieveNodeData)
-                                        (implicit mat: Materializer, ec: ExecutionContext): POIQuery[B] = {
-    val Poi = implicitly[POI[B]]
+  def apply[A <: AreaElement, B: POI](areaQuery: AreaQuery[A],
+                                      toData: (BoundingBox, Tag) ⇒ Future[List[OsmDenormalizedObject]] = retrieveNodeData)
+                                     (implicit mat: Materializer, ec: ExecutionContext): POIQuery[B] = {
+    val Poi: POI[B] = implicitly[POI[B]]
 
     val subFlow: Flow[A, B, NotUsed] = Flow[A]
       .map(_.osmObject)
@@ -195,7 +197,7 @@ object PointOfInterestQuery {
       .mapConcat(identity)
       .map(Poi.fromOsmDenObj)
 
-    val flow: Flow[A, (A, B), NotUsed] = Utilities.groupAndMapSubflowWithKey[A, A, B](identity, subFlow, 100)
+    val flow: Flow[A, (A, B), NotUsed] = Utilities.groupAndMapSubflowWithKey[A, A, B](identity, subFlow, 1000)
 
     val source: Source[B, NotUsed] = Source.fromGraph(areaQuery.shape).via(flow)
       .filter {
@@ -206,6 +208,22 @@ object PointOfInterestQuery {
     Poi.queryFromShape(source)
   }
 
+/*
+  def apply[B: POI](coordinatesQuery: CoordinatesQuery,
+               radius: Double,
+               bbsF: (Point, Double, Precision) => List[Long] = GeoCalculator.radiusToBoundingBoxes()): Source[T, NotUsed] = {
+    val Poi: POI[B] = implicitly[POI[B]]
+
+    val source = Source.fromGraph(coordinatesQuery.shape)
+
+    val flow = Flow[Location]
+      .map(_.point)
+      .mapConcat(p => Poi.tags.map(p -> _))
+        .map()
+    val bbs = bbsF(point, radius, PrecisionLow_20KM)
+
+
+  }*/
 }
 
 /**
@@ -215,27 +233,32 @@ object PointOfInterestQuery {
   */
 object Queries {
 
-  lazy val indexingService = IndexingService()
+  val log = Logger(LoggerFactory.getLogger(getClass.getName))
+
+
+  lazy val defaultIndexingService = IndexingService()
+  lazy val defaultMappingService = MappingService()
 
   private[engine] def relationByNameAndType(name: String,
                                             filterTag: OsmTag,
-                                            toIndex: (Name) => Future[List[Id]] = retrieveRelationId,
+                                            indexingService: IndexingService = defaultIndexingService,
                                             toBoundingBox: (Id) => Future[List[BoundingBox]] = retrieveRelationBB,
                                             toData: (BoundingBox, Id) => Future[List[OsmDenormalizedObject]] = retrieveRelationById
                                            ): Source[OsmDenormalizedRelation, NotUsed] = {
-    val indexSource: Source[IndexSearchHit, NotUsed] = indexingService.searchOsmObjectSource(name, OsmTypeRelation)
-    val indexedSource = indexSource.map((ish) => Id(ish.id))
 
-    val boundingBoxIdSource: Source[(BoundingBox, Id), NotUsed] = Utilities
-      .mapConcatAndGroupAsync(indexedSource, toBoundingBox)
-      .map(_.swap)
+    val idToData: (Id) => Future[List[(BoundingBox, Id)]] = id => toBoundingBox(id).map(_.map(bb => bb -> id))
 
-    val relationSource: Source[OsmDenormalizedRelation, NotUsed] = Utilities
-      .mapConcatAndGroupAsync[(BoundingBox, Id), OsmDenormalizedObject, NotUsed](boundingBoxIdSource, toData.tupled)
-      .collect { case ((bb, id), relation: OsmDenormalizedRelation) => relation }
+    indexingService
+      .searchOsmObjectSource(name, OsmTypeRelation)
+      .map((ish) => Id(ish.id))
+      .mapAsync(4)(idToData)
+      .mapConcat(identity)
+      .mapAsync(4)(toData.tupled)
+      .mapConcat(identity)
+      .collect { case relation: OsmDenormalizedRelation => relation }
       .filter(_.tags.contains(filterTag))
-      .deduplicate(1000, 0.001)
-    relationSource
+      .deduplicate(1000, 0.01)
+
   }
 
   private[engine] def relationByNameAndTypeShape[T <: AreaElement](name: String, tag: OsmTag, mapF: (OsmDenormalizedRelation) => T): Source[T, NotUsed] =
@@ -257,8 +280,11 @@ object Queries {
   private[engine] def relationByCoordinatesAndTypeShape[T <: AreaElement](lon: Double, lat: Double, tag: OsmTag, mapF: (OsmDenormalizedRelation) => T): Source[T, NotUsed] =
     relationByCoordinatesAndType(lon, lat, tag).map(mapF)
 
-  private[engine] def relationByContainment[I <: AreaElement, O <: AreaElement](areaQuery: AreaQuery[I], tag: OsmTag, mapF: (OsmDenormalizedRelation) => O,
-                                                                                toData: (BoundingBox, Tag) => Future[List[OsmDenormalizedObject]] = retrieveRelationData)(mat: Materializer, ec: ExecutionContext):
+  private[engine] def relationByContainment[I <: AreaElement, O <: AreaElement](areaQuery: AreaQuery[I], tag: OsmTag,
+                                                                                mapF: (OsmDenormalizedRelation) => O,
+                                                                                toData: (BoundingBox, Tag) => Future[List[OsmDenormalizedObject]] =
+                                                                                retrieveRelationData)
+                                                                               (implicit mat: Materializer, ec: ExecutionContext):
   Source[O, NotUsed] = {
 
     val subFlow: Flow[I, O, NotUsed] = Flow[I]
@@ -286,6 +312,7 @@ object Queries {
   private[engine] val villageTag = OsmTag("admin_level", "9")
   private[engine] val communityTag = OsmTag("admin_level", "10")
 
+
   private[engine] def createBBTag(point: Point, adminLevel: OsmTag): (BoundingBox, Tag) = {
     val tag = Tag(adminLevel)
     val hash = point.hash
@@ -309,11 +336,20 @@ object Queries {
     elements.distinct
   }
 
-  private[engine] def retrieveNodeData(bb: BoundingBox, tag: Tag)(implicit ec: ExecutionContext): Future[List[OsmDenormalizedObject]] = retrieveData(OsmTypeNode)(bb, tag)(ec)
+  private[engine] def retrieveNodeData(bb: BoundingBox, tag: Tag)(implicit ec: ExecutionContext): Future[List[OsmDenormalizedObject]] = {
+    log.trace(s"Retrieving node data for $bb $tag")
+    retrieveData(OsmTypeNode)(bb, tag)(ec)
+  }
 
-  private[engine] def retrieveWayData(bb: BoundingBox, tag: Tag)(implicit ec: ExecutionContext): Future[List[OsmDenormalizedObject]] = retrieveData(OsmTypeWay)(bb, tag)(ec)
+  private[engine] def retrieveWayData(bb: BoundingBox, tag: Tag)(implicit ec: ExecutionContext): Future[List[OsmDenormalizedObject]] = {
+    log.trace(s"Retrieving way data for $bb $tag")
+    retrieveData(OsmTypeWay)(bb, tag)(ec)
+  }
 
-  private[engine] def retrieveRelationData(bb: BoundingBox, tag: Tag)(implicit ec: ExecutionContext): Future[List[OsmDenormalizedObject]] = retrieveData(OsmTypeRelation)(bb, tag)(ec)
+  private[engine] def retrieveRelationData(bb: BoundingBox, tag: Tag)(implicit ec: ExecutionContext): Future[List[OsmDenormalizedObject]] = {
+    log.trace(s"Retrieving relation data for $bb $tag")
+    retrieveData(OsmTypeRelation)(bb, tag)(ec)
+  }
 
   private[engine] def retrieveData(typ: OsmType)(bb: BoundingBox, tag: Tag)(implicit ec: ExecutionContext): Future[List[OsmDenormalizedObject]] = {
     val storageService = OsmStorageService()
@@ -354,10 +390,10 @@ object Queries {
   private[engine] def retrieveRelationBB(id: Id)(implicit ec: ExecutionContext) = retrieveBB(OsmTypeRelation)(id)(ec)
 
   private[engine] def retrieveBB(typ: OsmType)(id: Id)(implicit ec: ExecutionContext): Future[List[BoundingBox]] = {
-    val mappingService = MappingService()
-    mappingService.findMapping(id.id, typ)
-      .map( _.map(
-            (mapping) => BoundingBox(mapping.hash)).toList
+
+    defaultMappingService.findMapping(id.id, typ)
+      .map(_.map(
+        (mapping) => BoundingBox(mapping.hash)).toList
       )
   }
 

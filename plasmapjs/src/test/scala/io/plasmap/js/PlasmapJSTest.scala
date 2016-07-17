@@ -5,7 +5,7 @@ import utest._
 
 object PlasmapJSTest extends TestSuite {
 
-  val jb = PlasmapJS
+ // val jb = PlasmapJS
   def tests = TestSuite {
 //    "can build city from name"-{
 //      assert(jb.city("Frankfurt") == PMCityFromName("Frankfurt"))

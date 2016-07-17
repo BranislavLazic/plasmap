@@ -1,5 +1,6 @@
 package io.plasmap.util.test
 
+import io.plasmap.model.geometry.{GeometryCollection, MultiPolygon}
 import io.plasmap.util.GeoCalculator
 import io.plasmap.model.{OsmDenormalizedObject, OsmDenormalizedRelation}
 import io.plasmap.parser.OsmDenormalizedParser
@@ -7,36 +8,46 @@ import org.specs2.mutable.Specification
 import org.specs2.specification.core.Fragment
 
 
-/**
- * Created by janschulte on 12/02/15.
- */
 class GeoCalculatorSpec extends Specification {
 
-  val cityEssenParser = OsmDenormalizedParser("util/src/test/resources/city.essen.geojson")
-  val cityMuehlheimParser = OsmDenormalizedParser("util/src/test/resources/city.muehlheim.geojson")
-  val districtsEssenParser = OsmDenormalizedParser("util/src/test/resources/districts.essen.geojson")
-  val districtsMuehlheimParser = OsmDenormalizedParser("util/src/test/resources/districts.muehlheim.geojson")
+  import OsmTestData._
 
-  private val relations: PartialFunction[OsmDenormalizedObject, OsmDenormalizedRelation] = {
-    case rel: OsmDenormalizedRelation => rel
+
+  def fakeGeo(shape:List[(Double, Double)]) = {
+    GeometryCollection(
+      List(
+        MultiPolygon(
+          List(
+            List(
+              shape
+            )
+          )
+        )
+      )
+    )
   }
 
-  val cityEssen:List[OsmDenormalizedRelation] = (for {opt <- cityEssenParser
-  } yield opt).flatten.collect(relations).toList
+  def mockRelation(geos:(Double, Double)*): GeometryCollection = fakeGeo(geos.toList)
 
-  val cityMuehlheim:List[OsmDenormalizedRelation] = (for {opt <- cityMuehlheimParser
-  } yield opt).flatten.collect(relations).toList
+  val city = mockRelation(
+    ( 0.0, 0.0),
+    ( 1.0, 0.0),
+    ( 1.0, 1.0),
+    ( 0.0, 1.0),
+    ( 0.0, 0.0)
+  )
 
-  val districtsEssen:List[OsmDenormalizedRelation] = (for {opt <- districtsEssenParser
-  } yield opt).flatten.collect(relations).toList
+  def district(moveBy:Double) = mockRelation(
+    ( 0.0+moveBy, 0.0),
+    ( 1.0+moveBy, 0.0),
+    ( 1.0+moveBy, 1.0),
+    ( 0.0+moveBy, 1.0),
+    ( 0.0+moveBy, 0.0)
+  )
 
-  val districtsMuehlheim:List[OsmDenormalizedRelation] = (for {opt <- districtsMuehlheimParser
-  } yield opt).flatten.collect(relations).toList
+  def test(percentOutside:Double) = GeoCalculator.within(district(percentOutside), city)
 
   "The GeoCalculator" should {
-
-    val essen = cityEssen(0)
-    val muehlheim = cityMuehlheim(0)
 
     s"calculate that Essen districts are contained in Essen" >> {
       Fragment.foreach(districtsEssen) { district =>
@@ -60,6 +71,19 @@ class GeoCalculatorSpec extends Specification {
         s"${district.tags.filter(_.key == "name")}\n" ! { GeoCalculator.within(district.geometry,muehlheim.geometry) must beFalse}
       }
     }
+
+    "consider inner polygons as being inner" in {
+      test(0.0) must beTrue
+    }
+
+    "consider polygons that only overlap 90 percent as being inner" in {
+      test(0.1) must beTrue
+    }
+
+    "consider polygons that overlap more than 90 percent as NOT being inner" in {
+      test(0.2) must beFalse
+    }
+
   }
 
 }

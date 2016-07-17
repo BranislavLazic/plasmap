@@ -1,29 +1,54 @@
 package io.plasmap.util
 
 import com.twitter.util.Base64StringEncoder._
-import io.plasmap.model.{OsmRelation, OsmWay, OsmNode, OsmObject}
+import io.plasmap.model._
 import io.plasmap.serializer.OsmSerializer._
 
 import scala.util.Try
 
-/**
- * Created by janschulte on 19/03/15.
- */
 object GeowUtils {
 
+
   def isNode(elem: OsmObject): Boolean = elem match {
-    case OsmNode(id,user,version,tags,point) => true
+    case _: OsmNode => true
+    case _ => false
+  }
+
+  def isDenormalisedNode(elem: OsmDenormalizedObject): Boolean = elem match {
+    case _: OsmDenormalizedNode => true
     case _ => false
   }
 
   def isWay(elem: OsmObject): Boolean = elem match {
-    case OsmWay(id,user,version,tags,nds) => true
+    case _: OsmWay => true
+    case _ => false
+  }
+
+  def isDenormalisedWay(elem: OsmDenormalizedObject): Boolean = elem match {
+    case _: OsmDenormalizedWay => true
     case _ => false
   }
 
   def isRelation(elem: OsmObject): Boolean = elem match {
-    case OsmRelation(id,user,version,tags,refs) => true
+    case _: OsmRelation => true
     case _ => false
+  }
+
+  def isDenormalisedRelation(elem: OsmDenormalizedObject): Boolean = elem match {
+    case _: OsmDenormalizedRelation => true
+    case _ => false
+  }
+
+  def toOsmType(elem: OsmObject): OsmType = elem match {
+    case elem: OsmNode => OsmTypeNode
+    case elem: OsmWay => OsmTypeWay
+    case elem: OsmRelation => OsmTypeRelation
+  }
+
+  def toOsmType(elem: OsmDenormalizedObject): OsmType = elem match {
+    case elem: OsmDenormalizedNode => OsmTypeNode
+    case elem: OsmDenormalizedWay => OsmTypeWay
+    case elem: OsmDenormalizedRelation => OsmTypeRelation
   }
 
   def encodeBase64(element: OsmObject): String = encode(toBinary(element))

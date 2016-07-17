@@ -41,6 +41,9 @@ object ElasticIndexingServiceSpec {
 class ElasticIndexingServiceSpec(implicit ev:ExecutionEnv) extends Specification with NoTimeConversions with ScalaCheck with ResultMatchers with Retries with FutureMatchers {
   import ElasticIndexingServiceSpec._
 
+  val unitTest = true
+  skipAllIf(unitTest)
+
   "The ElasticSearchServiceSpec" should {
     sequential
 

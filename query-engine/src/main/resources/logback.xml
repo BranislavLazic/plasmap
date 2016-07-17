@@ -30,8 +30,11 @@
 
     <logger name="akka" level="INFO" />
     <logger name="actors.MyActor" level="DEBUG" />
+    <logger name="io.plasmap.queryengine" level="TRACE">
+        <appender-ref ref="FILE"/>
+    </logger>
 
-    <root level="INFO">
+    <root level="WARN">
         <appender-ref ref="FILE"/>
     </root>
 </configuration>

@@ -31,7 +31,8 @@ object Utilities {
   }
 
 
-  def subflowWithGroupKey[In, K, Out](subFlow: Flow[In, Out, NotUsed], groupKey: (In) => K): Flow[In, (K, Out), NotUsed] = Flow.fromGraph {
+  private[streams] def subflowWithGroupKey[In, K, Out](groupKey: (In) => K, subFlow: Flow[In, Out, NotUsed]):
+  Flow[In, (K, Out), NotUsed] = Flow.fromGraph {
     GraphDSL.create() { implicit b =>
       import GraphDSL.Implicits._
 
@@ -51,7 +52,7 @@ object Utilities {
                                              subFlow: Flow[In, Out, NotUsed],
                                              maximumGroupSize: Int): Flow[In, (K, Out), NotUsed] = {
 
-    val subFlowWithGroupKey: Flow[In, (K, Out), NotUsed] = Utilities.subflowWithGroupKey(subFlow, groupKey)
+    val subFlowWithGroupKey: Flow[In, (K, Out), NotUsed] = subflowWithGroupKey(groupKey, subFlow)
 
     groupAndMapSubFlow[In, K, (K, Out)](groupKey, subFlowWithGroupKey, maximumGroupSize)
   }

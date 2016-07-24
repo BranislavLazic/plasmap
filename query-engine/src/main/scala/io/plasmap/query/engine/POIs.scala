@@ -1,8 +1,8 @@
 package io.plasmap.query.engine
 
-import akka.stream.{SourceShape, Graph}
-import io.plasmap.geohash.GeoHash
-import io.plasmap.model.{OsmTag, OsmDenormalizedObject, OsmDenormalizedRelation}
+import akka.stream.{Graph, SourceShape}
+import io.plasmap.geohash.{GeoHash, PrecisionLow_20KM}
+import io.plasmap.model.{OsmDenormalizedObject, OsmDenormalizedRelation, OsmTag}
 import io.plasmap.query.engine.TypeAliases.SourceGraph
 import io.plasmap.util.GeoCalculator
 import io.plasmap.query.engine.Queries._
@@ -22,7 +22,7 @@ object POIs {
   //Helper method (Don't move down.)
   def bbsToQueryFromTag(rel: OsmDenormalizedRelation, key: String, value: String): List[(BoundingBox, Tag)] = {
     val tag = OsmTag(key, value)
-    Queries.createBBTag(rel, tag)
+    Queries.createBBTag(rel, tag, PrecisionLow_20KM)
   }
 
   def bbsToQueryFromTags(rel: OsmDenormalizedRelation, kvs: Map[String, String]): List[(BoundingBox, Tag)] = {

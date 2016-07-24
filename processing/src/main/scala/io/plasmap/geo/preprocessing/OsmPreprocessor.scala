@@ -11,9 +11,8 @@ import com.typesafe.config.ConfigFactory
 import com.typesafe.scalalogging.Logger
 import io.plasmap.geo.mappings.{MappingService, OsmMapping, OsmNodeMapping}
 import io.plasmap.geo.util.KafkaTopics._
+import io.plasmap.geo.util.KafkaUtil
 import io.plasmap.geo.util.LoggingUtil._
-import io.plasmap.geo.util.OsmObjectEncoder.OsmObjectEncoder
-import io.plasmap.geo.util.{KafkaUtil, OsmDenormalisedObjectEncoder}
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.Future
@@ -66,7 +65,7 @@ object OsmPreprocessor {
         .to(kafkaSink(kafkaHost))
 
       val encode = Flow[OsmObject]
-        .map(OsmObjectEncoder.toBytes)
+        .map(OsmSerializer.toBinary)
 
       val logging: Flow[FlowError, OsmObject, NotUsed] = Flow[FlowError]
         .filter(_.isInstanceOf[CouldNotDenormaliseObject])
@@ -104,7 +103,7 @@ object OsmPreprocessor {
       .map(consumerRecordToBytes)
 
     val successSink = Flow[OsmDenormalizedObject]
-      .map(OsmDenormalisedObjectEncoder.toBytes)
+      .map(OsmDenormalizedSerializer.toBinary)
       .map(bytesToProducerRecord(persisterTopic))
       .to(kafkaSink(kafkaHost))
 

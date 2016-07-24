@@ -14,7 +14,9 @@ object Common {
     Resolvers.OSGeo.Releases,
     Resolvers.Bintray.Maven,
     Resolvers.Bintray.Scalaz,
-    Resolvers.Bintray.Redis
+    Resolvers.Bintray.Redis,
+    "geotools" at "http://download.osgeo.org/webdav/geotools/",
+    "geosolutions" at "http://maven.geo-solutions.it/"
   )
 
   def Organization = "io.plasmap"
@@ -75,7 +77,7 @@ object Common {
     object GeoTools {
 
       private val orga = "org.geotools"
-      private val version = "12-RC1"
+      private val version = "15.0"
       val Shapefile = orga % "gt-shapefile" % version
       val Swing = orga % "gt-swing" % version
 

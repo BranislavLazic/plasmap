@@ -1,12 +1,15 @@
 package io.plasmap.util
 
-import com.vividsolutions.jts.geom.{Envelope, Coordinate => JTSCoordinate, CoordinateSequence => JTSCoordinateSequence, Geometry => JTSGeometry, LinearRing => JTSLinearRing, Point => JTSPoint, Polygon => JTSPolygon}
+import com.typesafe.scalalogging.Logger
+import com.vividsolutions.jts.geom.{Envelope, PrecisionModel, MultiPolygon => JTSMultiPolygon, Coordinate => JTSCoordinate, CoordinateSequence => JTSCoordinateSequence, Geometry => JTSGeometry, LinearRing => JTSLinearRing, Point => JTSPoint, Polygon => JTSPolygon}
+import com.vividsolutions.jts.precision.GeometryPrecisionReducer
 import io.plasmap.geohash._
-import io.plasmap.model.{OsmDenormalizedRelation, OsmId}
 import io.plasmap.model.geometry._
+import io.plasmap.serializer.GeoJsonSerialiser
 import io.plasmap.util.GeowGeometryToJTSGeometry._
 import org.geotools.geometry.jts.JTSFactoryFinder
 import org.geotools.referencing.GeodeticCalculator
+import org.slf4j.LoggerFactory
 
 import scala.util.{Failure, Success, Try}
 
@@ -17,6 +20,8 @@ import scala.util.{Failure, Success, Try}
   * @author Jan Schulte <jan@plasmap.io>
   */
 object GeoCalculator {
+
+  val log = Logger(LoggerFactory.getLogger(getClass.getName))
 
   private val geometryFactory = JTSFactoryFinder.getGeometryFactory(null)
 
@@ -110,7 +115,7 @@ object GeoCalculator {
       val isWithin = innerMps.forall(p => outerMps.exists(q => p.within(q)))
       if (isWithin) true
       else {
-        val isAtLeast90PercentIn = fuzzyWithin(outerMps, innerMps)
+        val isAtLeast90PercentIn = fuzzyWithin(innerMps, outerMps, 0.90)
         isAtLeast90PercentIn
       }
 
@@ -120,23 +125,26 @@ object GeoCalculator {
       val jtsPoint = geometryFactory.createPoint(new JTSCoordinate(point.lon, point.lat))
       mps.exists(_.contains(jtsPoint))
     case x =>
-      //TODO implement
-      println(s"Received $x")
       false
   }
 
-  def fuzzyWithin(outerMps: List[MultiPolygon], innerMps: List[MultiPolygon]): Boolean = {
-    innerMps.forall(p => outerMps.exists(q =>
+  def fuzzyWithin(innerMps: List[MultiPolygon], outerMps: List[MultiPolygon], threshold: Double): Boolean = {
+    val precisionReducer = new GeometryPrecisionReducer(new PrecisionModel())
+    innerMps.exists(p => outerMps.exists(q => {
+      val jtsReducedP: JTSGeometry = precisionReducer.reduce(p)
+      val jtsReducedQ: JTSGeometry = precisionReducer.reduce(q)
       Try {
-        //println(s"Checking if $p is within $q")
-        val intersection: JTSGeometry = q.intersection(p)
-        (intersection.getArea / p.getArea) >= 0.90
+        val intersection: JTSGeometry = jtsReducedQ.intersection(jtsReducedP)
+        (intersection.getArea / p.getArea) >= threshold
       } match {
         case Success(isWithin) => isWithin
         case Failure(ex) =>
-          ex.printStackTrace()
+          log.error("Unable to proof intersection", ex)
+          log.error(s"Inner polygon (valid=${p.isValid}): ${GeoJsonSerialiser.jsonFromGeometry(p)}")
+          log.error(s"Outer polygon (valid=${q.isValid}): ${GeoJsonSerialiser.jsonFromGeometry(q)}")
           false
       }
+    }
     ))
   }
 

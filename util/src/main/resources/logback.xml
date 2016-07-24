@@ -28,7 +28,7 @@
 
     <logger name="org.apache.zookeeper" level="WARN"/>
 
-    <logger name="io.plasmap.query.engine" level="TRACE">
+    <logger name="io.plasmap.util" level="INFO">
         <appender-ref ref="FILE"/>
     </logger>
 

@@ -167,14 +167,14 @@ object PointOfInterestQuery {
 
   import Queries._
 
-  def apply[B: POI](coordinatesQuery: CoordinatesQuery, toData: (BoundingBox, Tag) ⇒ Future[List[OsmDenormalizedObject]] = retrieveNodeData)
-                                     (implicit mat: Materializer, ec: ExecutionContext): POIQuery[B] = {
+  def fromCoordinates[B: POI](coordinatesQuery: CoordinatesQuery, toData: (BoundingBox, Tag) ⇒ Future[List[OsmDenormalizedObject]] = retrieveNodeData)
+                   (implicit mat: Materializer, ec: ExecutionContext): POIQuery[B] = {
     val Poi = implicitly[POI[B]]
 
     val subFlow = Flow[Location]
       .map(_.point)
       .mapConcat(point => Poi.tags.map(t => point -> t))
-      .map(tuple => createBBTag(tuple._1, tuple._2))
+      .map(tuple => createBBTag(tuple._1, tuple._2, PrecisionLow_20KM))
       .mapAsync(4)(toData.tupled)
       .mapConcat(identity)
       .map(Poi.fromOsmDenObj)
@@ -185,7 +185,7 @@ object PointOfInterestQuery {
   }
 
 
-  def apply[A <: AreaElement, B: POI](areaQuery: AreaQuery[A],
+  def fromArea[A <: AreaElement, B: POI](areaQuery: AreaQuery[A],
                                       toData: (BoundingBox, Tag) ⇒ Future[List[OsmDenormalizedObject]] = retrieveNodeData)
                                      (implicit mat: Materializer, ec: ExecutionContext): POIQuery[B] = {
     val Poi: POI[B] = implicitly[POI[B]]
@@ -208,22 +208,59 @@ object PointOfInterestQuery {
     Poi.queryFromShape(source)
   }
 
-/*
-  def apply[B: POI](coordinatesQuery: CoordinatesQuery,
-               radius: Double,
-               bbsF: (Point, Double, Precision) => List[Long] = GeoCalculator.radiusToBoundingBoxes()): Source[T, NotUsed] = {
+  private[this] def retrieveNodesWithinRadius(distance: (Point, Point) => Double, toData: (Long, OsmTag) => List[OsmDenormalizedObject])
+                               (bb: Long, tag: OsmTag, radius: Double, point: Point): List[(Point, OsmDenormalizedObject)] = {
+    toData(bb, tag)
+      .collect { case node: OsmDenormalizedNode => node }
+      .filter(node => distance(point, node.geometry) <= radius)
+      .map(point -> _)
+  }
+
+  private[this] def pointToBBs(targetPrecision: Precision, bbsF: (Point, Double, Precision) => List[Long])
+                (radius: Double)
+                (point: Point): List[(Long, Point)] =
+    for (bb <- bbsF(point, radius, targetPrecision))
+      yield bb -> point
+
+  private[this] def getRadialData[B: POI](radius: Double, nodesWithinRadius: (Long, OsmTag, Double, Point) => List[(Point, OsmDenormalizedObject)]): (((Long, OsmTag), Point)) => List[(Point, OsmDenormalizedObject)] = {
+    triple => {
+      val ((bb, tag), p) = triple
+      nodesWithinRadius(bb, tag, radius, p)
+    }
+  }
+
+  private[this] def toPoiTags[B: POI]: (Long, Point) => List[(BBTag, Point)] = {
     val Poi: POI[B] = implicitly[POI[B]]
+    (bb, point) => Poi.tags.map(tag => ((bb, tag), point))
+  }
+
+  type BBTag = (Long, OsmTag)
+
+  def nearby[B: POI](coordinatesQuery: CoordinatesQuery,
+                    radius: Double,
+                    toData: (Long, OsmTag) => List[OsmDenormalizedObject],
+                    bbsF: (Point, Double, Precision) => List[Long] = GeoCalculator.radiusToBoundingBoxes(),
+                    distance: (Point, Point) => Double = GeoCalculator.orthodromicDistance()): Source[(Point, OsmDenormalizedObject), NotUsed] = {
 
     val source = Source.fromGraph(coordinatesQuery.shape)
 
-    val flow = Flow[Location]
+    val preFlow: Flow[Location, (BBTag, Point), NotUsed] = Flow[Location]
       .map(_.point)
-      .mapConcat(p => Poi.tags.map(p -> _))
-        .map()
-    val bbs = bbsF(point, radius, PrecisionLow_20KM)
+      .mapConcat(pointToBBs(PrecisionLow_20KM, bbsF)(radius))
+      .mapConcat(toPoiTags.tupled)
 
+    val nodesWithinRadius = retrieveNodesWithinRadius(distance, toData) _
 
-  }*/
+    val subFlow: Flow[(BBTag, Point), (Point, OsmDenormalizedObject), NotUsed] =
+      Flow[(BBTag, Point)]
+      .mapConcat(getRadialData(radius, nodesWithinRadius))
+
+    val groupFlow: Flow[(BBTag, Point), (Point, OsmDenormalizedObject), NotUsed] =
+      Utilities.groupAndMapSubFlow[(BBTag, Point), BBTag, (Point, OsmDenormalizedObject)](_._1, subFlow, 1000)
+
+    source.via(preFlow).via(groupFlow)
+  }
+
 }
 
 /**
@@ -269,7 +306,7 @@ object Queries {
     val source = location(lon, lat)
     val flow = Flow[Location]
       .map(_.point)
-      .map((point) => createBBTag(point, tag))
+      .map((point) => createBBTag(point, tag, PrecisionVeryLow_80KM))
       .mapAsync(4)(toData.tupled)
       .mapConcat(identity)
       .filter(osmObject => GeoCalculator.within(LonLatPoint(lon, lat), osmObject.geometry))
@@ -289,7 +326,7 @@ object Queries {
 
     val subFlow: Flow[I, O, NotUsed] = Flow[I]
       .map(_.osmObject)
-      .mapConcat(createBBTag(_, tag))
+      .mapConcat(createBBTag(_, tag, PrecisionVeryLow_80KM))
       .deduplicate(10000, 0.001)
       .mapAsync(4)(toData.tupled)
       .mapConcat(identity)
@@ -298,7 +335,7 @@ object Queries {
     val flow: Flow[I, (I, O), NotUsed] = Utilities.groupAndMapSubflowWithKey[I, I, O](identity, subFlow, 100)
     Source.fromGraph(areaQuery.shape)
       .via(flow)
-      .filter((tuple) => GeoCalculator.within(tuple._2.osmObject.geometry, tuple._1.osmObject.geometry))
+      .filter(tuple => GeoCalculator.within(tuple._2.osmObject.geometry, tuple._1.osmObject.geometry))
       .map(_._2)
       .deduplicate(1000, 0.001)
   }
@@ -313,19 +350,20 @@ object Queries {
   private[engine] val communityTag = OsmTag("admin_level", "10")
 
 
-  private[engine] def createBBTag(point: Point, adminLevel: OsmTag): (BoundingBox, Tag) = {
+  private[engine] def createBBTag(point: Point, adminLevel: OsmTag, targetPrecision: Precision): (BoundingBox, Tag) = {
     val tag = Tag(adminLevel)
     val hash = point.hash
-    val bb = BoundingBox(GeoHash.ultraHigh.reduceParallelPrecision(hash, PrecisionVeryLow_80KM))
+    val bb = BoundingBox(GeoHash.ultraHigh.reduceParallelPrecision(hash, targetPrecision))
     bb -> tag
   }
 
-  private[engine] def createBBTag(rel: OsmDenormalizedRelation, tag: OsmTag): List[(BoundingBox, Tag)] = {
+  private[engine] def createBBTag(rel: OsmDenormalizedRelation, tag: OsmTag, targetPrecision: Precision): List[(BoundingBox, Tag)] = {
 
+    val hasher = GeoCalculator.calculatorForPrecision(targetPrecision)
     val rectangles: List[(Point, Point)] = GeoCalculator.rectangle(rel.geometry)
-    val matrices: List[Array[Array[Long]]] = rectangles.map((rectangle) => {
+    val matrices: List[Array[Array[Long]]] = rectangles.map(rectangle => {
       val (upperLeft, lowerRight) = rectangle
-      GeoHash.veryLow.encapsulatingRectangleHashes(upperLeft.hash, lowerRight.hash)
+      hasher.encapsulatingRectangleHashes(upperLeft.hash, lowerRight.hash)
     })
 
     val elements = for {

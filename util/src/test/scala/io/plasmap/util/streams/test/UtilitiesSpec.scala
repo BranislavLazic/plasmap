@@ -58,7 +58,7 @@ class UtilitiesSpec extends Specification {
       val flow = Flow[Int]
         .mapConcat(_ => List(1, 2, 3, 4, 5))
         .map(_ + 10)
-      val subFlow = Utilities.subflowWithGroupKey[Int,Int,Int](flow, identity)
+      val subFlow = Utilities.subflowWithGroupKey[Int,Int,Int](identity,flow)
 
       val expected = List(
         1 -> 11,
@@ -96,7 +96,7 @@ class UtilitiesSpec extends Specification {
         3 -> "i3"
       )
 
-      val subFlowWithGroupKey = Utilities.subflowWithGroupKey[Int,Int,String](subFlow, identity)
+      val subFlowWithGroupKey = Utilities.subflowWithGroupKey[Int,Int,String](identity _,subFlow)
 
       val flow: Flow[Int, (Int, String), NotUsed] = Utilities.groupAndMapSubFlow[Int,Int,(Int,String)](identity,subFlowWithGroupKey,100)
 

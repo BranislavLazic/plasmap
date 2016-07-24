@@ -67,3 +67,4 @@ logBuffered := false
 
 parallelExecution in Test := false
 
+cancelable in Global := true
